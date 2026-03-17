@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/otfabric/modbus"
+	"github.com/otfabric/go-modbus"
 )
 
 const maxRegistersPerRead = 125
 
 // readRegisters reads a contiguous register range, splitting into 125-register
 // chunks as required by the Modbus protocol.
-func readRegisters(ctx context.Context, client *modbus.ModbusClient, unitID uint8, addr uint16, quantity uint16, regType modbus.RegType) ([]uint16, error) {
+func readRegisters(ctx context.Context, client *modbus.Client, unitID uint8, addr uint16, quantity uint16, regType modbus.RegType) ([]uint16, error) {
 	if quantity <= maxRegistersPerRead {
 		return client.ReadRegisters(ctx, unitID, addr, quantity, regType)
 	}

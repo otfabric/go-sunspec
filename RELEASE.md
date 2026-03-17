@@ -1,3 +1,42 @@
+# Release v0.2.0
+
+**Date:** 2026-03-17
+
+## Summary
+
+Migrate from `github.com/otfabric/modbus` to `github.com/otfabric/go-modbus`. The library now uses the shared transport and register API from go-modbus and delegates SunSpec marker detection and model-header enumeration to `go-modbus/sunspec`, while keeping this package as the high-level decoded SunSpec API.
+
+## Changes
+
+### Breaking
+
+- **Modbus dependency** — `github.com/otfabric/modbus` v0.2.2 replaced by `github.com/otfabric/go-modbus` v1.0.1. Import paths and type names change:
+  - Import: `github.com/otfabric/go-modbus` (and `github.com/otfabric/go-modbus/sunspec` where low-level discovery types are needed)
+  - `*modbus.ModbusClient` → `*modbus.Client`
+  - `modbus.ClientConfiguration` → `modbus.Config`
+  - `modbus.NewClient(...)` → `modbus.New(...)`
+  - `modbus.ServerConfiguration` → `modbus.ServerConfig` (test utilities)
+- **Public API** — SunSpec result types are now owned by this package instead of re-exported from modbus:
+  - `Detect()` now returns `*sunspec.DetectionResult` (was `*modbus.SunSpecDetectionResult`)
+  - `ModelInstance.Header` is now `sunspec.ModelHeader` (was `modbus.SunSpecModelHeader`)
+  - `DiscoveryResult.Raw` is now `*gmsunspec.DiscoveryResult` (was `*modbus.SunSpecDiscoveryResult`). New types `DetectionResult`, `ProbeAttempt`, and `ModelHeader` are defined in this package.
+
+### Added
+
+- **CLI** — `newClient()` now sets `Timeout`, `DialTimeout` (5s), and `Logger` (NopLogger) explicitly for clearer transport behaviour.
+
+### Unchanged
+
+- Discovery flow, registry enrichment, decode API, and CLI commands (`detect`, `models`, `read`, `read-model`, `read-point`, `poll`, etc.) are unchanged. Behaviour and output shape remain compatible.
+
+## Dependencies
+
+- Go 1.21+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.0.1
+- [spf13/cobra](https://github.com/spf13/cobra) v1.10.2 (CLI only)
+
+---
+
 # Release v0.1.3
 
 **Date:** 2026-03-12

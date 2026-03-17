@@ -148,7 +148,7 @@ jobs:
             --title "$tag" \
             --notes-file "${{ steps.notes.outputs.file }}" \
             --target "${{ github.sha }}" \
-            release/*.tar.gz
+            release/*.tar.gz release/*.zip
 
       - name: Summary
         run: |
@@ -161,4 +161,4 @@ jobs:
           echo "| New tag | ${{ steps.version.outputs.tag }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Notes from RELEASE.md | ${{ steps.notes.outputs.used_release_md }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Tests | Passed (run before release) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Binaries | Attached (linux/amd64, linux/arm64, linux/armv7, darwin/amd64, darwin/arm64) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Binaries | Attached (linux/amd64, linux/arm64, linux/armv7, darwin/amd64, darwin/arm64, windows/amd64, windows/arm64) |" >> "$GITHUB_STEP_SUMMARY"

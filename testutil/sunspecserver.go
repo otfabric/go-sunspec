@@ -5,7 +5,8 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/otfabric/modbus"
+	"github.com/otfabric/go-modbus"
+	gmsunspec "github.com/otfabric/go-modbus/sunspec"
 )
 
 // FixtureModel defines one model's register data for a test fixture.
@@ -30,7 +31,7 @@ func (h *SunSpecHandler) HandleDiscreteInputs(_ context.Context, _ *modbus.Discr
 }
 
 func (h *SunSpecHandler) HandleHoldingRegisters(_ context.Context, req *modbus.HoldingRegistersRequest) ([]uint16, error) {
-	if req.UnitId != h.UnitID {
+	if req.UnitID != h.UnitID {
 		return nil, modbus.ErrIllegalFunction
 	}
 	if req.IsWrite {
@@ -62,8 +63,8 @@ func NewSunSpecFixture(baseAddr uint16, unitID uint8, models ...FixtureModel) *S
 	addr := baseAddr
 
 	// Write SunS marker
-	h.Registers[addr] = modbus.SunSpecMarkerReg0
-	h.Registers[addr+1] = modbus.SunSpecMarkerReg1
+	h.Registers[addr] = gmsunspec.MarkerReg0
+	h.Registers[addr+1] = gmsunspec.MarkerReg1
 	addr += 2
 
 	for _, m := range models {
@@ -80,19 +81,19 @@ func NewSunSpecFixture(baseAddr uint16, unitID uint8, models ...FixtureModel) *S
 	}
 
 	// End model marker
-	h.Registers[addr] = modbus.SunSpecEndModelID
-	h.Registers[addr+1] = modbus.SunSpecEndModelLength
+	h.Registers[addr] = gmsunspec.EndModelID
+	h.Registers[addr+1] = gmsunspec.EndModelLength
 
 	return h
 }
 
 // StartServerClient creates a test server/client pair. Returns cleanup function.
-func StartServerClient(t *testing.T, handler *SunSpecHandler, port int) (*modbus.ModbusClient, func()) {
+func StartServerClient(t *testing.T, handler *SunSpecHandler, port int) (*modbus.Client, func()) {
 	t.Helper()
 
 	url := "tcp://127.0.0.1:" + itoa(port)
 
-	server, err := modbus.NewServer(&modbus.ServerConfiguration{
+	server, err := modbus.NewServer(&modbus.ServerConfig{
 		URL:        url,
 		MaxClients: 2,
 	}, handler)
@@ -103,7 +104,7 @@ func StartServerClient(t *testing.T, handler *SunSpecHandler, port int) (*modbus
 		t.Fatalf("failed to start server: %v", err)
 	}
 
-	client, err := modbus.NewClient(&modbus.ClientConfiguration{URL: url})
+	client, err := modbus.New(modbus.Config{URL: url})
 	if err != nil {
 		_ = server.Stop()
 		t.Fatalf("failed to create client: %v", err)

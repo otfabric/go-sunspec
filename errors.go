@@ -3,7 +3,8 @@ package sunspec
 import (
 	"errors"
 
-	"github.com/otfabric/modbus"
+	"github.com/otfabric/go-modbus"
+	gmsunspec "github.com/otfabric/go-modbus/sunspec"
 )
 
 var (
@@ -27,20 +28,20 @@ var (
 	ErrModelChainLimitExceeded = modbus.ErrSunSpecModelChainLimitExceeded
 )
 
-// SunSpec protocol constants re-exported from github.com/otfabric/modbus.
+// SunSpec protocol constants re-exported from github.com/otfabric/go-modbus/sunspec.
 var (
 	// SunSpecMarkerReg0 is the first register of the "SunS" marker (0x5375).
-	SunSpecMarkerReg0 = modbus.SunSpecMarkerReg0
+	SunSpecMarkerReg0 = gmsunspec.MarkerReg0
 
 	// SunSpecMarkerReg1 is the second register of the "SunS" marker (0x6E53).
-	SunSpecMarkerReg1 = modbus.SunSpecMarkerReg1
+	SunSpecMarkerReg1 = gmsunspec.MarkerReg1
 
 	// SunSpecEndModelID is the end-of-model-chain sentinel ID (0xFFFF).
-	SunSpecEndModelID = modbus.SunSpecEndModelID
+	SunSpecEndModelID = gmsunspec.EndModelID
 
 	// SunSpecEndModelLength is the end-of-model-chain sentinel length (0).
-	SunSpecEndModelLength = modbus.SunSpecEndModelLength
+	SunSpecEndModelLength = gmsunspec.EndModelLength
 
 	// SunSpecDefaultBaseAddresses are the default base addresses probed during detection.
-	SunSpecDefaultBaseAddresses = modbus.SunSpecDefaultBaseAddresses
+	SunSpecDefaultBaseAddresses = gmsunspec.DefaultBaseAddresses
 )

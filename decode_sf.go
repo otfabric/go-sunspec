@@ -77,6 +77,14 @@ func applySF(block *DecodedBlock, sfValues map[string]int16, literalSF map[strin
 			continue
 		}
 
+		// Schema-defined literal SF for this point
+		if litVal, ok := literalSF[dp.SFName]; ok {
+			sfv := int16(litVal)
+			dp.SFRawValue = &sfv
+			applyScale(dp, sfv)
+			continue
+		}
+
 		// Look up point name reference
 		if sfv, ok := sfValues[dp.SFName]; ok {
 			dp.SFRawValue = &sfv

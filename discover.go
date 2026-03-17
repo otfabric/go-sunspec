@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/otfabric/modbus"
+	"github.com/otfabric/go-modbus"
+	gmsunspec "github.com/otfabric/go-modbus/sunspec"
 	"github.com/otfabric/sunspec/registry"
 )
 
 // Discover detects SunSpec and enumerates models, returning a Device ready for reading.
-func Discover(ctx context.Context, client *modbus.ModbusClient, opts *DiscoverOptions) (*Device, error) {
-	raw, err := client.DiscoverSunSpec(ctx, opts.toSunSpecOptions())
+func Discover(ctx context.Context, client *modbus.Client, opts *DiscoverOptions) (*Device, error) {
+	reader := &readerAdapter{client: client}
+	gmOpts := opts.toGMSunspecOptions()
+	raw, err := gmsunspec.Discover(ctx, reader, gmOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +37,14 @@ func Discover(ctx context.Context, client *modbus.ModbusClient, opts *DiscoverOp
 			continue
 		}
 		inst := ModelInstance{
-			Header: hdr,
+			Header: ModelHeader{
+				ID:           hdr.ID,
+				Length:       hdr.Length,
+				StartAddress: hdr.StartAddress,
+				EndAddress:   hdr.EndAddress,
+				NextAddress:  hdr.NextAddress,
+				IsEndModel:   hdr.IsEndModel,
+			},
 		}
 		meta := registry.ByID(hdr.ID)
 		if meta != nil {
@@ -57,6 +67,6 @@ func Discover(ctx context.Context, client *modbus.ModbusClient, opts *DiscoverOp
 }
 
 // Open is a convenience that discovers and returns a Device in one step.
-func Open(ctx context.Context, client *modbus.ModbusClient, opts *DiscoverOptions) (*Device, error) {
+func Open(ctx context.Context, client *modbus.Client, opts *DiscoverOptions) (*Device, error) {
 	return Discover(ctx, client, opts)
 }

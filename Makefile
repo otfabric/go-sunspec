@@ -7,7 +7,7 @@ help: ## This help
 
 APP_NAME    = sunspecctl
 APP_SRC     = ./cmd/sunspecctl
-ARCHS       = linux/amd64 linux/arm64 linux/arm/v7 darwin/amd64 darwin/arm64
+ARCHS       = linux/amd64 linux/arm64 linux/arm/v7 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 RELEASE_DIR = release
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS     = -ldflags "-X main.version=$(VERSION)"
@@ -70,7 +70,10 @@ build-all: generate ## Build CLI for all architectures
 		rest=$${arch#*/}; \
 		cpu=$${rest%%/*}; \
 		variant=$${rest#*/}; \
-		if [ "$$cpu" = "arm" ] && [ "$$variant" = "v7" ]; then \
+		if [ "$$os" = "windows" ]; then \
+			echo "Building $(APP_NAME)-$$os-$$cpu.exe..."; \
+			GOOS=$$os GOARCH=$$cpu go build $(LDFLAGS) -o $(RELEASE_DIR)/$(APP_NAME)-$$os-$$cpu.exe $(APP_SRC); \
+		elif [ "$$cpu" = "arm" ] && [ "$$variant" = "v7" ]; then \
 			echo "Building $(APP_NAME)-$$os-armv7..."; \
 			GOOS=$$os GOARCH=$$cpu GOARM=7 go build $(LDFLAGS) -o $(RELEASE_DIR)/$(APP_NAME)-$$os-armv7 $(APP_SRC); \
 		else \
@@ -79,19 +82,25 @@ build-all: generate ## Build CLI for all architectures
 		fi \
 	done
 
-release-all: build-all ## Package CLI binaries into tar.gz archives
+release-all: build-all ## Package CLI binaries into tar.gz (Unix) and zip (Windows)
 	@for arch in $(ARCHS); do \
 		os=$${arch%%/*}; \
 		rest=$${arch#*/}; \
 		cpu=$${rest%%/*}; \
 		variant=$${rest#*/}; \
-		if [ "$$cpu" = "arm" ] && [ "$$variant" = "v7" ]; then \
+		if [ "$$os" = "windows" ]; then \
+			bin=$(APP_NAME)-$$os-$$cpu.exe; \
+			echo "Packaging $(APP_NAME)-$$os-$$cpu.zip..."; \
+			zip -j $(RELEASE_DIR)/$(APP_NAME)-$$os-$$cpu.zip $(RELEASE_DIR)/$$bin; \
+		elif [ "$$cpu" = "arm" ] && [ "$$variant" = "v7" ]; then \
 			bin=$(APP_NAME)-$$os-armv7; \
+			echo "Packaging $$bin.tar.gz..."; \
+			tar czf $(RELEASE_DIR)/$$bin.tar.gz -C $(RELEASE_DIR) $$bin; \
 		else \
 			bin=$(APP_NAME)-$$os-$$cpu; \
+			echo "Packaging $$bin.tar.gz..."; \
+			tar czf $(RELEASE_DIR)/$$bin.tar.gz -C $(RELEASE_DIR) $$bin; \
 		fi; \
-		echo "Packaging $$bin.tar.gz..."; \
-		tar czf $(RELEASE_DIR)/$$bin.tar.gz -C $(RELEASE_DIR) $$bin; \
 	done
 
 install: build ## Install sunspecctl to /usr/local/bin

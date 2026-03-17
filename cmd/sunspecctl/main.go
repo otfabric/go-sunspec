@@ -9,7 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/otfabric/modbus"
+	"github.com/otfabric/go-modbus"
 	"github.com/otfabric/sunspec"
 	"github.com/spf13/cobra"
 )
@@ -84,8 +84,14 @@ To load completions:
 	}
 }
 
-func newClient() (*modbus.ModbusClient, func(), error) {
-	client, err := modbus.NewClient(&modbus.ClientConfiguration{URL: flagURL})
+func newClient() (*modbus.Client, func(), error) {
+	conf := modbus.Config{
+		URL:         flagURL,
+		Timeout:     flagTimeout,
+		DialTimeout: 5 * time.Second,
+		Logger:      modbus.NopLogger(),
+	}
+	client, err := modbus.New(conf)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create client: %w", err)
 	}
