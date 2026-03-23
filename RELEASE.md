@@ -1,5 +1,29 @@
 # go-sunspec Releases
 
+## v0.2.2
+
+**Date:** 2026-03-23
+
+## Summary
+
+Remove stale `github.com/otfabric/sunspec` dependency left over from the repository rename. All internal imports and documentation now use the current module path `github.com/otfabric/go-sunspec`.
+
+## Changes
+
+### Changed
+
+- **Module imports** — replaced all `github.com/otfabric/sunspec` imports with `github.com/otfabric/go-sunspec` across 10 source files.
+- **go.mod / go.sum** — removed the `github.com/otfabric/sunspec v0.2.0` dependency (circular self-reference under the old name).
+- **README** — updated title, badges, install command, code examples, project structure, and dependency list to reflect the `go-sunspec` / `go-modbus` module paths.
+
+## Dependencies
+
+- Go 1.23+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.0.4
+- [spf13/cobra](https://github.com/spf13/cobra) v1.10.2 (CLI only)
+
+---
+
 ## v0.2.1
 
 **Date:** 2026-03-23
@@ -24,7 +48,6 @@ Enhance `sunspecctl` build metadata and improve project layout. The CLI binary n
 
 - Go 1.23+
 - [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.0.4
-- [otfabric/sunspec](https://github.com/otfabric/sunspec) v0.2.0
 - [spf13/cobra](https://github.com/spf13/cobra) v1.10.2 (CLI only)
 
 ---
@@ -156,7 +179,7 @@ Initial release of the `otfabric/sunspec` Go library and `sunspecctl` CLI tool f
 
 ## What's Included
 
-### Library (`github.com/otfabric/sunspec`)
+### Library (`github.com/otfabric/go-sunspec`)
 - `Detect()` / `Discover()` / `Open()` — device discovery
 - `Device.ReadAll()` / `ReadModel()` / `ReadModelByID()` / `ReadPoint()` — read API
 - `DecodeModel()` — standalone model decoder

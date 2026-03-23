@@ -3,7 +3,7 @@ package registry_test
 import (
 	"testing"
 
-	"github.com/otfabric/sunspec/registry"
+	"github.com/otfabric/go-sunspec/registry"
 )
 
 func TestByIDCommonModel(t *testing.T) {
