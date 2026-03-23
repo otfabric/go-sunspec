@@ -3,7 +3,7 @@ package sunspec
 import (
 	"github.com/otfabric/go-modbus"
 	gmsunspec "github.com/otfabric/go-modbus/sunspec"
-	"github.com/otfabric/sunspec/registry"
+	"github.com/otfabric/go-sunspec/registry"
 )
 
 // ModelHeader describes one SunSpec model's header (ID, length, address range).

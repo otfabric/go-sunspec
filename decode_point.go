@@ -7,7 +7,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/otfabric/sunspec/registry"
+	"github.com/otfabric/go-sunspec/registry"
 )
 
 func decodePoint(regs []uint16, pm *registry.PointMeta) (DecodedPoint, string) {

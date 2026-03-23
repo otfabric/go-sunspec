@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-modbus"
-	"github.com/otfabric/sunspec"
+	"github.com/otfabric/go-sunspec"
 	"github.com/spf13/cobra"
 )
 

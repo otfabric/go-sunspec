@@ -3,7 +3,7 @@ package sunspec
 import (
 	"fmt"
 
-	"github.com/otfabric/sunspec/registry"
+	"github.com/otfabric/go-sunspec/registry"
 )
 
 // DecodeModel decodes a register slice into a DecodedModel using the given schema.

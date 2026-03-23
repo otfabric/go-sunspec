@@ -1,12 +1,14 @@
-# sunspec — Sunspec Modbus Protocol Library
+# go-sunspec — SunSpec Modbus Protocol Library
 
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
-[![Go Report Card](https://goreportcard.com/badge/github.com/otfabric/sunspec)](https://goreportcard.com/report/github.com/otfabric/sunspec)
-[![CI](https://github.com/otfabric/sunspec/actions/workflows/ci.yml/badge.svg)](https://github.com/otfabric/sunspec/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.1.0-blue.svg)](https://github.com/otfabric/sunspec/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/otfabric/go-sunspec)](https://goreportcard.com/report/github.com/otfabric/go-sunspec)
+[![CI](https://github.com/otfabric/go-sunspec/actions/workflows/ci.yml/badge.svg)](https://github.com/otfabric/go-sunspec/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/github/otfabric/go-sunspec/graph/badge.svg?token=F5SDITBPE8)](https://codecov.io/github/otfabric/go-sunspec)
+[![Release](https://img.shields.io/github/v/release/otfabric/go-sunspec?display_name=tag)](https://github.com/otfabric/go-sunspec/releases)
 
-Go library for reading [SunSpec](https://sunspec.org/) devices over Modbus. Built on top of [otfabric/modbus](https://github.com/otfabric/modbus).
+
+Go library for reading [SunSpec](https://sunspec.org/) devices over Modbus. Built on top of [otfabric/go-modbus](https://github.com/otfabric/go-modbus).
 
 - Auto-discovers SunSpec models on a device
 - Decodes all standard point types (int, uint, float, string, enum, bitfield, IP addresses, accumulators, scale factors)
@@ -18,7 +20,7 @@ Go library for reading [SunSpec](https://sunspec.org/) devices over Modbus. Buil
 ## Install
 
 ```bash
-go get github.com/otfabric/sunspec
+go get github.com/otfabric/go-sunspec
 ```
 
 ## Quick Start
@@ -31,12 +33,12 @@ import (
     "fmt"
     "log"
 
-    "github.com/otfabric/modbus"
-    "github.com/otfabric/sunspec"
+    "github.com/otfabric/go-modbus"
+    "github.com/otfabric/go-sunspec"
 )
 
 func main() {
-    client, _ := modbus.NewClient(&modbus.ClientConfiguration{
+    client, _ := modbus.New(modbus.Config{
         URL: "tcp://192.168.1.100:502",
     })
     client.Open()
@@ -105,7 +107,7 @@ fmt.Printf("Power: %g W\n", *point.ScaledValue)
 ### Registry
 
 ```go
-import "github.com/otfabric/sunspec/registry"
+import "github.com/otfabric/go-sunspec/registry"
 
 // Look up model metadata.
 meta := registry.ByID(101) // *ModelMeta or nil
@@ -142,7 +144,7 @@ make build
 make build-cli
 
 # Or build directly with go
-go build -o sunspecctl ./cmd/sunspecctl
+go build -o bin/sunspecctl ./cmd/sunspecctl
 
 # Cross-compile for all platforms (linux/amd64, linux/arm64, linux/armv7, darwin/amd64, darwin/arm64)
 make build-all
@@ -216,7 +218,7 @@ sunspecctl read --url tcp://192.168.1.100:502 --raw
 ## Project Structure
 
 ```
-sunspec/
+go-sunspec/
 ├── cmd/sunspecctl/     CLI tool
 ├── internal/
 │   ├── gen/           Code generator (JSON → Go)
@@ -247,4 +249,4 @@ make generate
 ## Requirements
 
 - Go 1.23+
-- [otfabric/modbus](https://github.com/otfabric/modbus) v0.2.1+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.0.4+

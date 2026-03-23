@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/otfabric/sunspec"
-	"github.com/otfabric/sunspec/testutil"
+	"github.com/otfabric/go-sunspec"
+	"github.com/otfabric/go-sunspec/testutil"
 )
 
 // buildCommonModel1 builds register data for SunSpec model 1 (Common).

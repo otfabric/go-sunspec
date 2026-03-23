@@ -1,6 +1,6 @@
 package sunspec
 
-import "github.com/otfabric/sunspec/registry"
+import "github.com/otfabric/go-sunspec/registry"
 
 // DecodedModel holds the decoded output of a single model instance.
 type DecodedModel struct {

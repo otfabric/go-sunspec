@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/otfabric/sunspec/registry"
+	"github.com/otfabric/go-sunspec/registry"
 )
 
 func TestDecodeInt16(t *testing.T) {
