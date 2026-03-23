@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/otfabric/sunspec/internal/schema"
+	"github.com/otfabric/go-sunspec/internal/schema"
 )
 
 func main() {

@@ -246,5 +246,5 @@ make generate
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.23+
 - [otfabric/modbus](https://github.com/otfabric/modbus) v0.2.1+

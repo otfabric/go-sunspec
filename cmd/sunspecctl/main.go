@@ -21,8 +21,11 @@ var (
 	flagJSON    bool
 	flagRaw     bool
 
-	// version is set at build time via -ldflags.
-	version = "dev"
+	// Build metadata set at build time via -ldflags.
+	version   = "dev"
+	tag       = ""
+	commit    = ""
+	buildDate = ""
 )
 
 func main() {
@@ -112,7 +115,30 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the sunspecctl version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println(version)
+			if flagJSON {
+				info := map[string]string{"version": version}
+				if tag != "" {
+					info["tag"] = tag
+				}
+				if commit != "" {
+					info["commit"] = commit
+				}
+				if buildDate != "" {
+					info["buildDate"] = buildDate
+				}
+				_ = printJSON(info)
+				return
+			}
+			fmt.Printf("sunspecctl %s\n", version)
+			if tag != "" {
+				fmt.Printf("tag:       %s\n", tag)
+			}
+			if commit != "" {
+				fmt.Printf("commit:    %s\n", commit)
+			}
+			if buildDate != "" {
+				fmt.Printf("built:     %s\n", buildDate)
+			}
 		},
 	}
 }

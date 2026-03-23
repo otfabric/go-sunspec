@@ -1,4 +1,35 @@
-# Release v0.2.0
+# go-sunspec Releases
+
+## v0.2.1
+
+**Date:** 2026-03-23
+
+## Summary
+
+Enhance `sunspecctl` build metadata and improve project layout. The CLI binary now embeds full version, tag, commit, and build-date information via `-ldflags`, and local builds output to `./bin/`.
+
+## Changes
+
+### Changed
+
+- **Version command** — `sunspecctl version` now prints version, git tag, commit hash, and build date (previously only printed the version string). Supports `--json` for structured output.
+- **Build-time ldflags** — Makefile passes `-X main.version`, `-X main.tag`, `-X main.commit`, and `-X main.buildDate` to match the CI release workflow.
+- **Build output directory** — `make build` and `make build-cli` now output the binary to `./bin/sunspecctl` instead of the project root. `make install` and `make clean` updated accordingly.
+
+### Added
+
+- **Release workflow** — new `release-sunspecctl-binary` job in `release.yml` publishes cross-platform `sunspecctl` binaries via the shared `go-binary-release` workflow with full ldflags.
+
+## Dependencies
+
+- Go 1.23+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.0.4
+- [otfabric/sunspec](https://github.com/otfabric/sunspec) v0.2.0
+- [spf13/cobra](https://github.com/spf13/cobra) v1.10.2 (CLI only)
+
+---
+
+## v0.2.0
 
 **Date:** 2026-03-17
 
@@ -37,7 +68,7 @@ Migrate from `github.com/otfabric/modbus` to `github.com/otfabric/go-modbus`. Th
 
 ---
 
-# Release v0.1.3
+## v0.1.3
 
 **Date:** 2026-03-12
 
@@ -68,7 +99,7 @@ Export SunSpec protocol constants so downstream consumers (e.g. strategies parsi
 
 ---
 
-# Release v0.1.2
+## v0.1.2
 
 **Date:** 2026-03-12
 
@@ -105,7 +136,7 @@ All poll commands support `--interval` (default `30s`, accepts `s`/`m`/`h`) and 
 
 ---
 
-# Release v0.1.0
+## v0.1.0
 
 **Date:** 2026-03-12
 

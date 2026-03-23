@@ -10,7 +10,10 @@ APP_SRC     = ./cmd/sunspecctl
 ARCHS       = linux/amd64 linux/arm64 linux/arm/v7 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 RELEASE_DIR = release
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS     = -ldflags "-X main.version=$(VERSION)"
+TAG        ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "")
+COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
+BUILD_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+LDFLAGS     = -ldflags "-s -w -X main.version=$(VERSION) -X main.tag=$(TAG) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
 
 all: check build ## Run all checks and build library + CLI
 
@@ -56,12 +59,14 @@ lint-ci: ## Run golangci-lint (uses .golangci.yml)
 build: generate ## Build the library and CLI
 	@echo "Building library"
 	@go build ./...
+	@mkdir -p bin
 	@echo "Building $(APP_NAME) $(VERSION)"
-	@go build $(LDFLAGS) -o $(APP_NAME) $(APP_SRC)
+	@go build $(LDFLAGS) -o bin/$(APP_NAME) $(APP_SRC)
 
 build-cli: ## Build CLI only (skip generate)
+	@mkdir -p bin
 	@echo "Building $(APP_NAME) $(VERSION)"
-	@go build $(LDFLAGS) -o $(APP_NAME) $(APP_SRC)
+	@go build $(LDFLAGS) -o bin/$(APP_NAME) $(APP_SRC)
 
 build-all: generate ## Build CLI for all architectures
 	@mkdir -p $(RELEASE_DIR)
@@ -105,11 +110,11 @@ release-all: build-all ## Package CLI binaries into tar.gz (Unix) and zip (Windo
 
 install: build ## Install sunspecctl to /usr/local/bin
 	@echo "Installing $(APP_NAME) to /usr/local/bin"
-	@sudo install -m 0755 $(APP_NAME) /usr/local/bin/$(APP_NAME)
+	@sudo install -m 0755 bin/$(APP_NAME) /usr/local/bin/$(APP_NAME)
 
 clean: ## Clean build artifacts and generated code
 	@echo "Cleaning build artifacts"
-	@rm -f $(APP_NAME)
+	@rm -rf bin
 	@rm -rf $(RELEASE_DIR)
 	@rm -f coverage.out
 	@rm -f registry/models_gen.go

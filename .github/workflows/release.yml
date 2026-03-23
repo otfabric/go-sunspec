@@ -1,21 +1,12 @@
-# Release workflow for otfabric/sunspec (library + CLI).
-#
-# Creates a semver tag from the latest existing tag, runs tests, builds
-# cross-platform sunspecctl binaries, creates a GitHub Release with
-# RELEASE.md notes (or git log fallback), and attaches the binaries.
-#
-# Repo customization points:
-#  - RELEASE.md: first block (up to "---") used as release notes.
-#  - Makefile release-all: builds cross-platform binaries into release/.
+name: Release
 
-name: Release otfabric/sunspec
 run-name: Release (${{ inputs.bump }}) from ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Version bump type"
+        description: Version bump type
         required: true
         type: choice
         options:
@@ -24,141 +15,25 @@ on:
           - major
         default: patch
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
-
 permissions:
   contents: write
 
 jobs:
-  release:
-    name: Release
-    runs-on: ubuntu-latest
+  release-package:
+    uses: otfabric/.github/.github/workflows/go-package-release.yml@v2
+    with:
+      bump: ${{ inputs.bump }}
+      release-name-prefix: go-sunspec
+      update-major-tag: false
+    secrets: inherit
 
-    steps:
-      - name: Checkout sunspec
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Verify default branch
-        run: |
-          set -euo pipefail
-          default="${{ github.event.repository.default_branch }}"
-          current="${{ github.ref_name }}"
-          if [ "$current" != "$default" ]; then
-            echo "::error::Releases are only allowed from the default branch. Current ref: $current, default branch: $default"
-            exit 1
-          fi
-          echo "Running on default branch: $default"
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Test
-        run: |
-          set -euo pipefail
-          go test -count=1 -timeout=180s -race ./...
-
-      # --- Version detection (semver vX.Y.Z, bootstrap from v0.0.0 if no tags) ---
-      - name: Determine version
-        id: version
-        run: |
-          set -euo pipefail
-          bump="${{ inputs.bump }}"
-          previous_tag=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)
-          if [ -z "$previous_tag" ]; then
-            previous_tag="v0.0.0"
-          fi
-          previous_version="${previous_tag#v}"
-          IFS='.' read -r major minor patch <<< "$previous_version"
-
-          case "$bump" in
-            major)  major=$((major + 1)); minor=0; patch=0 ;;
-            minor)  minor=$((minor + 1)); patch=0 ;;
-            patch)  patch=$((patch + 1)) ;;
-            *)      echo "::error::Invalid bump: $bump"; exit 1 ;;
-          esac
-
-          version="${major}.${minor}.${patch}"
-          tag="v${version}"
-
-          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
-          echo "previous_version=$previous_version" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-          echo "Releasing $tag (was $previous_tag)"
-
-      - name: Fail if tag already exists
-        run: |
-          set -euo pipefail
-          tag="${{ steps.version.outputs.tag }}"
-          if git rev-parse "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "::error::Tag $tag already exists. Tags are immutable; choose a different bump or do not re-release."
-            exit 1
-          fi
-
-      - name: Generate release notes
-        id: notes
-        run: |
-          set -euo pipefail
-          tag="${{ steps.version.outputs.tag }}"
-          prev="${{ steps.version.outputs.previous_tag }}"
-          used_release_md="false"
-
-          if [ -f RELEASE.md ]; then
-            awk '/^---$/ { exit } { print }' RELEASE.md > "$RUNNER_TEMP/release-notes.md"
-            used_release_md="true"
-          else
-            {
-              echo "## Changes since ${prev}"
-              echo ""
-              git log "${prev}..HEAD" --pretty=format:"- %s (%h)" 2>/dev/null || echo "- Initial release"
-            } > "$RUNNER_TEMP/release-notes.md"
-          fi
-
-          echo "file=$RUNNER_TEMP/release-notes.md" >> "$GITHUB_OUTPUT"
-          echo "used_release_md=$used_release_md" >> "$GITHUB_OUTPUT"
-
-      - name: Build cross-platform binaries
-        run: make release-all VERSION=${{ steps.version.outputs.tag }}
-
-      - name: Create and push annotated tag
-        run: |
-          set -euo pipefail
-          tag="${{ steps.version.outputs.tag }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" -m "Release $tag" HEAD
-          git push origin "refs/tags/$tag"
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          tag="${{ steps.version.outputs.tag }}"
-          gh release create "$tag" \
-            --title "$tag" \
-            --notes-file "${{ steps.notes.outputs.file }}" \
-            --target "${{ github.sha }}" \
-            release/*.tar.gz release/*.zip
-
-      - name: Summary
-        run: |
-          echo "## Release summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Bump | ${{ inputs.bump }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Previous tag | ${{ steps.version.outputs.previous_tag }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| New tag | ${{ steps.version.outputs.tag }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Notes from RELEASE.md | ${{ steps.notes.outputs.used_release_md }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Tests | Passed (run before release) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Binaries | Attached (linux/amd64, linux/arm64, linux/armv7, darwin/amd64, darwin/arm64, windows/amd64, windows/arm64) |" >> "$GITHUB_STEP_SUMMARY"
+  release-sunspecctl-binary:
+    needs: release-package
+    uses: otfabric/.github/.github/workflows/go-binary-release.yml@v2
+    with:
+      bump: none
+      binary-name: sunspecctl
+      main-path: ./cmd/sunspecctl
+      ldflags: "-s -w -X main.version=${VERSION} -X main.tag=${TAG} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}"
+      run-tests: false
+    secrets: inherit

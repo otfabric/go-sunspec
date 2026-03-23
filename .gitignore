@@ -2,6 +2,7 @@
 /release/*
 /docker.tar
 /sunspecctl
+/bin/*
 
 # Scan results
 *.log
