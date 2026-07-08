@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package sunspec
 
 import "github.com/otfabric/go-sunspec/registry"

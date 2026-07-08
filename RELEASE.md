@@ -1,5 +1,34 @@
 # go-sunspec Releases
 
+## v0.2.3
+
+**Date:** 2026-07-08
+
+## Summary
+
+Prepare the repository for public open-source release under the MIT License. Add license files and SPDX headers, and standardize README badges for publication.
+
+## Changes
+
+### Added
+
+- **LICENSE** — root MIT license file (`Copyright (c) 2026 OT Fabric`).
+- **SPDX headers** — `// SPDX-License-Identifier: MIT` on all first-party Go source files.
+- **README** — license section and table of contents.
+
+### Changed
+
+- **README badges** — standardized badge block for public release: added pkg.go.dev reference, removed Go Report Card, switched Codecov to a tokenless public URL, and normalized the release badge label.
+- **go-modbus** — upgraded `github.com/otfabric/go-modbus` from v1.0.4 to v1.1.1.
+
+## Dependencies
+
+- Go 1.23+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.1.1
+- [spf13/cobra](https://github.com/spf13/cobra) v1.10.2 (CLI only)
+
+---
+
 ## v0.2.2
 
 **Date:** 2026-03-23

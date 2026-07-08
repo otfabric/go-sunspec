@@ -1,11 +1,11 @@
 # go-sunspec — SunSpec Modbus Protocol Library
 
-[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
-[![Go Report Card](https://goreportcard.com/badge/github.com/otfabric/go-sunspec)](https://goreportcard.com/report/github.com/otfabric/go-sunspec)
+[![Go](https://img.shields.io/badge/Go-1.23%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Reference](https://pkg.go.dev/badge/github.com/otfabric/go-sunspec.svg)](https://pkg.go.dev/github.com/otfabric/go-sunspec)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/otfabric/go-sunspec/actions/workflows/ci.yml/badge.svg)](https://github.com/otfabric/go-sunspec/actions/workflows/ci.yml)
-[![Codecov](https://codecov.io/github/otfabric/go-sunspec/graph/badge.svg?token=F5SDITBPE8)](https://codecov.io/github/otfabric/go-sunspec)
-[![Release](https://img.shields.io/github/v/release/otfabric/go-sunspec?display_name=tag)](https://github.com/otfabric/go-sunspec/releases)
+[![Codecov](https://codecov.io/gh/otfabric/go-sunspec/graph/badge.svg)](https://codecov.io/gh/otfabric/go-sunspec)
+[![Release](https://img.shields.io/github/v/release/otfabric/go-sunspec?label=release)](https://github.com/otfabric/go-sunspec/releases)
 
 
 Go library for reading [SunSpec](https://sunspec.org/) devices over Modbus. Built on top of [otfabric/go-modbus](https://github.com/otfabric/go-modbus).
@@ -16,6 +16,25 @@ Go library for reading [SunSpec](https://sunspec.org/) devices over Modbus. Buil
 - Handles repeating blocks (meters, MPPTs, etc.)
 - Ships with a compiled registry of 112 SunSpec model schemas
 - Includes `sunspecctl` CLI for quick device inspection
+
+## Table of Contents
+
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [API](#api)
+  - [Discovery](#discovery)
+  - [Reading](#reading)
+  - [Registry](#registry)
+- [CLI — `sunspecctl`](#cli--sunspecctl)
+  - [Building](#building)
+  - [Global Flags](#global-flags)
+  - [Commands](#commands)
+  - [Polling](#polling)
+  - [Output Formats](#output-formats)
+- [Project Structure](#project-structure)
+- [Updating Models](#updating-models)
+- [Requirements](#requirements)
+- [License](#license)
 
 ## Install
 
@@ -249,4 +268,8 @@ make generate
 ## Requirements
 
 - Go 1.23+
-- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.0.4+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.1.1+
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](./LICENSE).

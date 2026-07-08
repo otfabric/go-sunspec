@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 package sunspec_test
 
 import (
