@@ -99,5 +99,5 @@ func (d *Device) ReadPoint(ctx context.Context, inst ModelInstance, pointName st
 		}
 	}
 
-	return nil, fmt.Errorf("point %q not found in model %d", pointName, inst.Header.ID)
+	return nil, fmt.Errorf("%w: point %q in model %d", ErrPointNotFound, pointName, inst.Header.ID)
 }

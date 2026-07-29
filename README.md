@@ -25,6 +25,9 @@ Go library for reading [SunSpec](https://sunspec.org/) devices over Modbus. Buil
   - [Discovery](#discovery)
   - [Reading](#reading)
   - [Registry](#registry)
+  - [Ownership and concurrency](#ownership-and-concurrency)
+  - [Observability](#observability)
+  - [Errors](#errors)
 - [CLI — `sunspecctl`](#cli--sunspecctl)
   - [Building](#building)
   - [Global Flags](#global-flags)
@@ -35,6 +38,8 @@ Go library for reading [SunSpec](https://sunspec.org/) devices over Modbus. Buil
 - [Updating Models](#updating-models)
 - [Requirements](#requirements)
 - [License](#license)
+
+Full API and error contracts: [API.md](API.md), [ERRORS.md](ERRORS.md).
 
 ## Install
 
@@ -57,10 +62,15 @@ import (
 )
 
 func main() {
-    client, _ := modbus.New(modbus.Config{
+    client, err := modbus.New(modbus.Config{
         URL: "tcp://192.168.1.100:502",
     })
-    client.Open()
+    if err != nil {
+        log.Fatal(err)
+    }
+    if err := client.Open(); err != nil {
+        log.Fatal(err)
+    }
     defer client.Close()
 
     ctx := context.Background()
@@ -132,8 +142,30 @@ import "github.com/otfabric/go-sunspec/registry"
 meta := registry.ByID(101) // *ModelMeta or nil
 known := registry.Known(101) // true
 count := registry.Count() // 112
-all := registry.All() // sorted []ModelMeta
+all := registry.All() // map[uint16]*ModelMeta (shallow copy)
 ```
+
+### Ownership and concurrency
+
+- The caller owns the `*modbus.Client`: create, `Open`, and `Close` it. `Device` only holds a reference and does not close the connection.
+- `sunspec.Open` is an alias of `Discover`; it does **not** open the Modbus connection.
+- Concurrent `Device` use follows the injected client's concurrency rules (see go-modbus).
+- The compiled registry is safe for concurrent reads after init; do not call `registry.Register` afterward.
+
+### Observability
+
+Logging, metrics, retries, and timeouts are configured on the Modbus client, not on this package:
+
+```go
+client, err := modbus.New(modbus.Config{
+    URL:    "tcp://192.168.1.100:502",
+    Logger: modbus.NopLogger(),
+})
+```
+
+### Errors
+
+Use `errors.Is` / `errors.As` with package sentinels (`ErrNotSunSpec`, `ErrUnknownModel`, `ErrPointNotFound`, `ErrDecode`, `ErrPartialRead`) and `*DecodeError`. Details: [ERRORS.md](ERRORS.md).
 
 ## CLI — `sunspecctl`
 
@@ -242,9 +274,12 @@ go-sunspec/
 ├── internal/
 │   ├── gen/           Code generator (JSON → Go)
 │   └── schema/        JSON model parsing types
-├── models/            SunSpec JSON model definitions
+├── models/            SunSpec JSON models (from sunspec/models; see models/README.md)
 ├── registry/          Generated model metadata + lookups
 ├── testutil/          Test fixture server
+├── API.md             Public API contract
+├── ERRORS.md          Error taxonomy
+├── doc.go             Package documentation
 ├── types.go           Public types (Device, ModelInstance, DiscoverOptions)
 ├── errors.go          Error types
 ├── detect.go          Detect()
@@ -258,11 +293,16 @@ go-sunspec/
 
 ## Updating Models
 
-Sync the latest SunSpec JSON models and regenerate:
+The JSON under [`models/`](models/) comes from the official SunSpec Alliance
+repository [**sunspec/models**](https://github.com/sunspec/models)
+([`json/` on `master`](https://github.com/sunspec/models/tree/master/json)).
+[`sync-models.sh`](sync-models.sh) downloads that tree into `models/`;
+`make generate` compiles it into [`registry/models_gen.go`](registry/models_gen.go).
+See [models/README.md](models/README.md) for details.
 
 ```bash
-./sync-models.sh
-make generate
+./sync-models.sh   # fetch latest JSON from sunspec/models
+make generate      # regenerate registry/models_gen.go
 ```
 
 ## Requirements
@@ -273,3 +313,7 @@ make generate
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](./LICENSE).
+
+The SunSpec JSON model definitions in [`models/`](models/) are from
+[sunspec/models](https://github.com/sunspec/models) and are licensed under the
+[Apache License 2.0](https://github.com/sunspec/models/blob/master/LICENSE).

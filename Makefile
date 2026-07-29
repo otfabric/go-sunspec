@@ -1,9 +1,12 @@
-.PHONY: help all generate build build-cli check test coverage cover fmt vet lint lint-ci install clean
+.PHONY: help all generate build build-cli check test coverage coverage-html coverage-clean coverage-check cover fmt vet lint lint-ci vuln install clean
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .DEFAULT_GOAL := help
+
+# Ignore a parent go.work (e.g. otfabric/go.work) so this module builds standalone.
+export GOWORK := off
 
 APP_NAME    = sunspecctl
 APP_SRC     = ./cmd/sunspecctl
@@ -14,6 +17,10 @@ TAG        ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "")
 COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
 BUILD_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS     = -ldflags "-s -w -X main.version=$(VERSION) -X main.tag=$(TAG) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
+
+# Library packages for coverage gates (exclude CLI, codegen, and test helpers).
+TEST_PKGS     := . ./registry
+COVERAGE_MIN  := 75
 
 all: check build ## Run all checks and build library + CLI
 
@@ -26,17 +33,32 @@ sync: ## Sync SunSpec JSON models from upstream and regenerate
 	@./sync-models.sh
 	@$(MAKE) generate
 
-check: fmt vet lint lint-ci test ## Run all checks (format, vet, lint, test)
+check: fmt vet lint lint-ci vuln test coverage-check ## Run all checks (format, vet, lint, test, coverage)
 
 test: ## Run unit and integration tests with race detector
 	@echo "Running tests (race detector)"
 	@go test -count=1 -race ./...
 
-coverage: ## Run tests with coverage (writes coverage.out)
-	@echo "Running tests with coverage"
-	@go test -count=1 -race -coverprofile=coverage.out -covermode=atomic ./...
+coverage: ## Run library tests with coverage profile and text summary
+	@echo "Running coverage on $(TEST_PKGS)"
+	@go test -count=1 -race -coverprofile=coverage.out -covermode=atomic $(TEST_PKGS)
+	@go tool cover -func=coverage.out | tee coverage.txt
 
-cover: coverage ## Open coverage report in browser
+coverage-html: coverage ## Generate HTML coverage report (coverage.html)
+	@echo "Generating HTML coverage report"
+	@go tool cover -html=coverage.out -o coverage.html
+
+coverage-check: ## Fail if library coverage is below $(COVERAGE_MIN)%
+	@echo "Running coverage check (minimum $(COVERAGE_MIN)%) on $(TEST_PKGS)"
+	@go test -count=1 -race -coverprofile=coverage.out -covermode=atomic $(TEST_PKGS)
+	@go tool cover -func=coverage.out | tee coverage.txt
+	@go tool cover -func=coverage.out | grep 'total:' | awk -v min=$(COVERAGE_MIN) '{gsub(/%/,""); p=$$NF+0; if (p < min) { printf "Coverage %.1f%% is below %d%%\n", p, min; exit 1 } else { printf "Coverage %.1f%% (>= %d%%)\n", p, min } }'
+
+coverage-clean: ## Remove coverage artifacts
+	@echo "Removing coverage artifacts"
+	@rm -f coverage.out coverage.txt coverage.html
+
+cover: coverage-html ## Open coverage report in browser
 	@echo "Opening coverage report in browser"
 	@go tool cover -html=coverage.out
 
@@ -55,6 +77,10 @@ lint: ## Run staticcheck
 lint-ci: ## Run golangci-lint (uses .golangci.yml)
 	@echo "Running golangci-lint"
 	@golangci-lint run ./...
+
+vuln: ## Run govulncheck
+	@echo "Running govulncheck"
+	@govulncheck ./...
 
 build: generate ## Build the library and CLI
 	@echo "Building library"
@@ -112,9 +138,8 @@ install: build ## Install sunspecctl to /usr/local/bin
 	@echo "Installing $(APP_NAME) to /usr/local/bin"
 	@sudo install -m 0755 bin/$(APP_NAME) /usr/local/bin/$(APP_NAME)
 
-clean: ## Clean build artifacts and generated code
+clean: coverage-clean ## Clean build artifacts and generated code
 	@echo "Cleaning build artifacts"
 	@rm -rf bin
 	@rm -rf $(RELEASE_DIR)
-	@rm -f coverage.out
 	@rm -f registry/models_gen.go

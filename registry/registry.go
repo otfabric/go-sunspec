@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MIT
 
+// Package registry holds compiled SunSpec model schemas and lookup helpers.
+//
+// The registry is populated by generated init functions. After package
+// initialization it is safe for concurrent reads (ByID, Known, All, Count).
+// Callers must not call Register after init.
 package registry
 
 type ModelMeta struct {

@@ -1,5 +1,48 @@
 # go-sunspec Releases
 
+## v0.3.0
+
+**Date:** 2026-07-29
+
+## Summary
+
+Align documentation and error contracts with the rest of the otfabric library family. Sync SunSpec JSON models from upstream and regenerate the compiled registry. Minor release: new exported error types and removal of an unused sentinel.
+
+## Changes
+
+### Added
+
+- **doc.go** — package overview covering scope, ownership, concurrency, and entry points.
+- **API.md** / **ERRORS.md** — public API and error taxonomy.
+- **DecodeError** — typed decode failure with model/point location fields.
+- **ErrPointNotFound** — sentinel for missing point names in `ReadPoint`.
+- Runnable examples for `DecodeModel` and registry lookups.
+- **Makefile `vuln`** — `govulncheck ./...`, included in `make check`.
+- **Makefile coverage targets** — `coverage`, `coverage-html`, `coverage-check` (minimum 75% on library packages `.` and `./registry`), and `coverage-clean`.
+- **models/README.md** — documents upstream source of the JSON model definitions ([sunspec/models](https://github.com/sunspec/models) `json/` on `master`).
+- Additional unit/integration coverage for `Detect`, `ReadPoint`, `toGMSunspecOptions`, IPv6 decode, scale application, and registry length helpers.
+
+### Changed
+
+- **README** — quickstart handles `modbus.New` / `Open` errors; documents ownership, concurrency, inherited Modbus observability; corrects `registry.All()` return type; documents model provenance and Apache-2.0 upstream license.
+- **ErrUnknownModel** — comment clarifies it means “not in discovery”, not “no local schema”.
+- **ErrPartialRead** — wraps the underlying Modbus cause with `%w`.
+- **Makefile** — exports `GOWORK=off` so checks and builds ignore a parent `go.work` and run as a standalone module; `make check` enforces the coverage gate.
+- **SunSpec models** — refreshed `models/*.json` from [sunspec/models](https://github.com/sunspec/models) `master` via `./sync-models.sh` (59 files updated; still 112 compiled models). Mostly description-text cleanup; **model 64415** gains `SubscribedResource` and `SubscriptionEna`.
+- **registry/models_gen.go** — regenerated with `make generate` to match the synced JSON.
+
+### Removed
+
+- **ErrUnsupportedPointType** — unused. Unsupported point types continue to produce `DecodedModel` warnings with raw registers retained.
+
+## Dependencies
+
+- Go 1.23+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.1.1
+- [spf13/cobra](https://github.com/spf13/cobra) v1.10.2 (CLI only)
+
+---
+
 ## v0.2.3
 
 **Date:** 2026-07-08

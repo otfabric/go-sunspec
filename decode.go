@@ -23,9 +23,13 @@ func DecodeModel(regs []uint16, meta *registry.ModelMeta, instanceAddr uint16) (
 
 	fixedLen := meta.FixedLength()
 	if len(regs) < fixedLen {
-		dm.Warnings = append(dm.Warnings,
-			fmt.Sprintf("register slice too short for fixed block: have %d, need %d", len(regs), fixedLen))
-		return dm, fmt.Errorf("%w: register slice too short for fixed block", ErrDecode)
+		msg := fmt.Sprintf("register slice too short for fixed block: have %d, need %d", len(regs), fixedLen)
+		dm.Warnings = append(dm.Warnings, msg)
+		return dm, &DecodeError{
+			ModelID: meta.ID,
+			Message: msg,
+			Err:     ErrDecode,
+		}
 	}
 
 	if meta.FixedBlock != nil {

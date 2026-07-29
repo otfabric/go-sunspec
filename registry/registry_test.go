@@ -87,6 +87,37 @@ func TestCountPositive(t *testing.T) {
 	}
 }
 
+func TestFixedAndRepeatingLength(t *testing.T) {
+	common := registry.ByID(1)
+	if common == nil {
+		t.Fatal("ByID(1) returned nil")
+	}
+	if got := common.FixedLength(); got != 68 {
+		t.Errorf("model 1 FixedLength() = %d, want 68", got)
+	}
+	if got := common.RepeatingLength(); got != 0 {
+		t.Errorf("model 1 RepeatingLength() = %d, want 0", got)
+	}
+
+	// Model 160 (MPPT) has a repeating block in the compiled registry.
+	mppt := registry.ByID(160)
+	if mppt == nil {
+		t.Fatal("ByID(160) returned nil")
+	}
+	if got := mppt.FixedLength(); got <= 0 {
+		t.Errorf("model 160 FixedLength() = %d, want > 0", got)
+	}
+	if got := mppt.RepeatingLength(); got <= 0 {
+		t.Errorf("model 160 RepeatingLength() = %d, want > 0", got)
+	}
+
+	empty := &registry.ModelMeta{}
+	if empty.FixedLength() != 0 || empty.RepeatingLength() != 0 {
+		t.Errorf("nil blocks: FixedLength=%d RepeatingLength=%d, want 0/0",
+			empty.FixedLength(), empty.RepeatingLength())
+	}
+}
+
 func TestPointOffsetsSumToGroupLength(t *testing.T) {
 	all := registry.All()
 	for id, m := range all {

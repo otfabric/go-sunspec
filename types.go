@@ -57,6 +57,9 @@ type DiscoveryResult struct {
 }
 
 // Device holds a modbus client and discovery result, ready for reading.
+//
+// The caller owns Client: Device does not open or close the connection.
+// Concurrent Device use is safe to the same extent as the underlying client.
 type Device struct {
 	Client    *modbus.Client
 	UnitID    uint8

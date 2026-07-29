@@ -4,6 +4,7 @@ package sunspec_test
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 	"time"
@@ -246,13 +247,124 @@ func TestIntegrationReadPoint(t *testing.T) {
 	if dp.RawValue != uint16(1234) {
 		t.Errorf("A raw = %v, want 1234", dp.RawValue)
 	}
+
+	_, err = device.ReadPoint(ctx, *inst, "DoesNotExist")
+	if !errors.Is(err, sunspec.ErrPointNotFound) {
+		t.Fatalf("missing point: got %v, want ErrPointNotFound", err)
+	}
+}
+
+func buildMPPTModel160() testutil.FixtureModel {
+	// Wire Length excludes the 2-register header. Fixed data = 8, one repeating instance = 20.
+	regs := make([]uint16, 28)
+	// Fixed data (schema offsets 2..9): SF, Evt, N, TmsPer
+	regs[0] = 0 // DCA_SF
+	regs[1] = 0 // DCV_SF
+	regs[2] = 0 // DCW_SF
+	regs[3] = 0 // DCWH_SF
+	regs[4] = 0 // Evt hi
+	regs[5] = 0 // Evt lo
+	regs[6] = 1 // N
+	regs[7] = 0 // TmsPer
+	// Repeating instance starts at data index 8 (schema offsets 0..19 within block)
+	regs[8] = 1                                               // ID
+	copy(regs[9:17], testutil.StringToRegisters("MPPT-A", 8)) // IDStr
+	regs[17] = 123                                            // DCA
+	regs[18] = 456                                            // DCV
+	regs[19] = 789                                            // DCW
+	return testutil.FixtureModel{
+		ID:        160,
+		Length:    28,
+		Registers: regs,
+	}
+}
+
+func TestIntegrationReadPointRepeatingAndError(t *testing.T) {
+	fixture := testutil.NewSunSpecFixture(40000, 1,
+		buildCommonModel1(),
+		buildMPPTModel160(),
+	)
+	client, cleanup := testutil.StartServerClient(t, fixture, 15027)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	device, err := sunspec.Discover(ctx, client, &sunspec.DiscoverOptions{
+		UnitID:        1,
+		BaseAddresses: []uint16{40000},
+	})
+	if err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	inst := device.ModelByID(160)
+	if inst == nil {
+		t.Fatal("model 160 not found")
+	}
+
+	dp, err := device.ReadPoint(ctx, *inst, "DCA")
+	if err != nil {
+		t.Fatalf("ReadPoint DCA: %v", err)
+	}
+	if dp.RawValue != uint16(123) {
+		t.Errorf("DCA = %v, want 123", dp.RawValue)
+	}
+
+	_ = client.Close()
+	_, err = device.ReadPoint(ctx, *inst, "DCA")
+	if err == nil {
+		t.Fatal("expected ReadPoint error after client close")
+	}
+}
+
+func TestIntegrationDetectSuccess(t *testing.T) {
+	fixture := testutil.NewSunSpecFixture(40000, 1, buildCommonModel1())
+	client, cleanup := testutil.StartServerClient(t, fixture, 15028)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := sunspec.Detect(ctx, client, &sunspec.DiscoverOptions{
+		UnitID:        1,
+		BaseAddresses: []uint16{40000},
+	})
+	if err != nil {
+		t.Fatalf("Detect failed: %v", err)
+	}
+	if !result.Detected {
+		t.Fatal("expected Detected=true")
+	}
+	if result.BaseAddress != 40000 {
+		t.Errorf("BaseAddress = %d, want 40000", result.BaseAddress)
+	}
+	if result.UnitID != 1 {
+		t.Errorf("UnitID = %d, want 1", result.UnitID)
+	}
+	if len(result.Attempts) == 0 {
+		t.Fatal("expected at least one probe attempt")
+	}
+	matched := false
+	for _, a := range result.Attempts {
+		if a.Matched {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		t.Error("expected a matched probe attempt")
+	}
 }
 
 func TestIntegrationDetectNotSunSpec(t *testing.T) {
-	// Empty handler with no SunSpec registers
+	// Readable registers that are not a SunSpec marker (avoids illegal-address probe errors).
 	handler := &testutil.SunSpecHandler{
-		Registers: map[uint16]uint16{},
-		UnitID:    1,
+		Registers: map[uint16]uint16{
+			40000: 0x0000,
+			40001: 0x0000,
+		},
+		UnitID: 1,
 	}
 	client, cleanup := testutil.StartServerClient(t, handler, 15023)
 	defer cleanup()
@@ -260,12 +372,35 @@ func TestIntegrationDetectNotSunSpec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	result, err := sunspec.Detect(ctx, client, &sunspec.DiscoverOptions{
+		UnitID:        1,
+		BaseAddresses: []uint16{40000},
+	})
+	if !errors.Is(err, sunspec.ErrNotSunSpec) {
+		t.Fatalf("got %v, want ErrNotSunSpec", err)
+	}
+	if result == nil || result.Detected {
+		t.Fatalf("expected Detected=false result, got %+v", result)
+	}
+}
+
+func TestIntegrationDetectTransportError(t *testing.T) {
+	fixture := testutil.NewSunSpecFixture(40000, 1, buildCommonModel1())
+	client, cleanup := testutil.StartServerClient(t, fixture, 15029)
+	cleanup() // stop server immediately
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
 	_, err := sunspec.Detect(ctx, client, &sunspec.DiscoverOptions{
 		UnitID:        1,
 		BaseAddresses: []uint16{40000},
 	})
 	if err == nil {
-		t.Fatal("expected error for non-SunSpec device")
+		t.Fatal("expected Detect transport error against stopped server")
+	}
+	if errors.Is(err, sunspec.ErrNotSunSpec) {
+		t.Fatalf("got ErrNotSunSpec, want transport/IO error: %v", err)
 	}
 }
 

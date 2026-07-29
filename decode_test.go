@@ -165,6 +165,23 @@ func TestDecodeIPAddr(t *testing.T) {
 	}
 }
 
+func TestDecodeIPv6Addr(t *testing.T) {
+	pm := &registry.PointMeta{Name: "IPv6", Type: "ipv6addr", Size: 8}
+	// 2001:db8::1
+	regs := []uint16{0x2001, 0x0db8, 0, 0, 0, 0, 0, 1}
+	dp, warn := decodePoint(regs, pm)
+	if warn != "" {
+		t.Fatalf("unexpected warning: %s", warn)
+	}
+	if dp.RawValue != "2001:db8::1" {
+		t.Errorf("got %q, want %q", dp.RawValue, "2001:db8::1")
+	}
+
+	if got := decodeIPv6Addr([]uint16{1, 2, 3}); got != "" {
+		t.Errorf("short slice = %q, want empty", got)
+	}
+}
+
 func TestDecodeEUI48(t *testing.T) {
 	pm := &registry.PointMeta{Name: "MAC", Type: "eui48", Size: 4}
 	// aa:bb:cc:dd:ee:ff
@@ -314,5 +331,41 @@ func TestDecodeAccumulators(t *testing.T) {
 	}
 	if dp32.RawValue != uint32(100) {
 		t.Errorf("acc32 raw = %v, want 100", dp32.RawValue)
+	}
+}
+
+func TestApplyScaleTypes(t *testing.T) {
+	const sf int16 = -1
+	cases := []struct {
+		name string
+		raw  interface{}
+		want float64
+	}{
+		{"int16", int16(100), 10},
+		{"uint16", uint16(100), 10},
+		{"int32", int32(100), 10},
+		{"uint32", uint32(100), 10},
+		{"int64", int64(100), 10},
+		{"uint64", uint64(100), 10},
+		{"float32", float32(100), 10},
+		{"float64", float64(100), 10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dp := &DecodedPoint{RawValue: tc.raw, Implemented: true}
+			applyScale(dp, sf)
+			if dp.ScaledValue == nil {
+				t.Fatal("ScaledValue is nil")
+			}
+			if math.Abs(*dp.ScaledValue-tc.want) > 0.001 {
+				t.Errorf("scaled = %v, want %v", *dp.ScaledValue, tc.want)
+			}
+		})
+	}
+
+	dp := &DecodedPoint{RawValue: "not-a-number", Implemented: true}
+	applyScale(dp, sf)
+	if dp.ScaledValue != nil {
+		t.Errorf("unsupported RawValue should leave ScaledValue nil, got %v", *dp.ScaledValue)
 	}
 }

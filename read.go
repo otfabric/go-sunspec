@@ -29,7 +29,7 @@ func readRegisters(ctx context.Context, client *modbus.Client, unitID uint8, add
 		}
 		regs, err := client.ReadRegisters(ctx, unitID, addr+offset, chunk, regType)
 		if err != nil {
-			return result, fmt.Errorf("%w: read at %d+%d: %v", ErrPartialRead, addr, offset, err)
+			return result, fmt.Errorf("%w: read at %d+%d: %w", ErrPartialRead, addr, offset, err)
 		}
 		result = append(result, regs...)
 		offset += chunk
