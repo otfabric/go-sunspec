@@ -1,5 +1,28 @@
 # go-sunspec Releases
 
+## v0.3.1
+
+**Date:** 2026-07-30
+**Previous release:** v0.3.0
+
+## Summary
+
+Patch release: bump go-modbus to v1.1.3 (pulls go-serial v0.1.6). No API or
+behaviour changes.
+
+## Changes
+
+### Dependencies
+
+- **go-modbus** — `v1.1.1` → **v1.1.3**
+- **go-serial** (indirect) — `v0.1.5` → **v0.1.6**
+
+### Unchanged
+
+- No API, wire, or behavioural changes. Import path remains `github.com/otfabric/go-sunspec`.
+
+---
+
 ## v0.3.0
 
 **Date:** 2026-07-29
