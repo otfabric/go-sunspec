@@ -1,5 +1,28 @@
 # go-sunspec Releases
 
+## v0.4.1
+
+**Date:** 2026-10-09
+**Previous release:** v0.4.0
+
+## Summary
+
+Patch release: sync the SunSpec model definitions with upstream. One model changed: the units of a point in model 122. This is the first update found by the weekly models check added in v0.4.0 ([#1](https://github.com/otfabric/go-sunspec/issues/1)). No API changes.
+
+## Changes
+
+### Changed
+
+- **Model 122 (Measurements_Status)** — the units of **`WAval`** (available watts) are now **`W`**; upstream changed them from `var`. `DecodedPoint.Units` for this point changes from `"var"` to `"W"`, and so does the unit `sunspecctl` prints next to it. The point's type, size, scale factor (`WAval_SF`) and value are unchanged.
+- **`models/model_122.json`** — refreshed from [sunspec/models](https://github.com/sunspec/models) `master` with `./sync-models.sh`; still 112 compiled models.
+- **`registry/models_gen.go`** — regenerated with `make generate`.
+
+### Unchanged
+
+- No other model differs from upstream (`./check-models.sh` reports the local copy in sync), and there are no API, wire or behaviour changes. Import path remains `github.com/otfabric/go-sunspec`.
+
+---
+
 ## v0.4.0
 
 **Date:** 2026-10-09
