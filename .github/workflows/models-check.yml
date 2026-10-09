@@ -1,0 +1,156 @@
+name: SunSpec models check
+run-name: "SunSpec models check (${{ github.event_name }})"
+
+# Once a week, compare models/ with the official SunSpec model definitions
+# (github.com/sunspec/models, json/ on master). When upstream has new, changed
+# or removed models, open an issue (or update the open one) that lists them and
+# shows what changed: the points that differ and a unified diff of the JSON,
+# current models/ versus upstream. The full diff is also kept as an artifact.
+# When models/ is back in sync, the issue is closed. Nothing in the repository
+# is modified: updating is ./sync-models.sh followed by `make generate`.
+
+on:
+  schedule:
+    # Mondays at 06:17 UTC (off the hour, when scheduled runs are less delayed).
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: models-check
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Compare with sunspec/models
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE_TITLE: "SunSpec models: upstream changes available"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Compare models/ with upstream
+        id: check
+        shell: bash
+        run: |
+          # GitHub runs this step with `bash -e`. check-models.sh exits 1 when upstream
+          # differs, which is a result, not a failure: capture the status instead of
+          # letting errexit end the step.
+          set -uo pipefail
+          : > models.diff
+          status=0
+          ./check-models.sh --diff-file models.diff | tee report.txt || status=$?
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## SunSpec models check"
+            echo
+            echo '```text'
+            cat report.txt
+            echo '```'
+            if [ -s models.diff ]; then
+              echo
+              echo "### Differences (models/ → upstream)"
+              echo
+              echo '```diff'
+              # The job summary is limited to 1 MiB; the artifact has the full diff.
+              head -c 500000 models.diff
+              echo
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          # 0 = in sync, 1 = upstream differs; anything else means the check itself failed.
+          if [ "${status}" -gt 1 ]; then
+            exit "${status}"
+          fi
+
+      - name: Upload the full diff
+        if: steps.check.outputs.status == '1'
+        id: artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sunspec-models-diff
+          path: |
+            report.txt
+            models.diff
+          retention-days: 90
+
+      - name: Find the open tracking issue
+        id: issue
+        shell: bash
+        run: |
+          set -euo pipefail
+          number="$(gh issue list --state open --search "\"${ISSUE_TITLE}\" in:title" --json number,title \
+            --jq "[.[] | select(.title == env.ISSUE_TITLE)][0].number // empty")"
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the tracking issue
+        if: steps.check.outputs.status == '1'
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          # An issue body holds at most 65536 characters; leave room for the rest of the text.
+          MAX_DIFF_BYTES: "55000"
+        run: |
+          set -euo pipefail
+          {
+            echo "The weekly check found differences between \`models/\` and the official"
+            echo "[sunspec/models](https://github.com/sunspec/models/tree/master/json) repository."
+            echo
+            echo '```text'
+            cat report.txt
+            echo '```'
+            echo
+            echo "## What changed"
+            echo
+            echo "Current \`models/\` (\`-\`) versus upstream (\`+\`). For every changed model: the points whose"
+            echo "name, type, size, scale factor, units, mandatory flag, access or symbol count differ,"
+            echo "then the unified diff of the JSON."
+            echo
+            echo '```diff'
+            head -c "${MAX_DIFF_BYTES}" models.diff
+            echo
+            echo '```'
+            if [ "$(wc -c < models.diff)" -gt "${MAX_DIFF_BYTES}" ]; then
+              echo
+              echo "**The diff is truncated here.** The complete diff is in the"
+              echo "[workflow artifact](${ARTIFACT_URL:-$RUN_URL}) and can be reproduced with \`./check-models.sh --diff\`."
+            fi
+            echo
+            echo "## To update"
+            echo
+            echo '```sh'
+            echo "./sync-models.sh   # fetch the JSON models from sunspec/models"
+            echo "make generate      # regenerate registry/models_gen.go"
+            echo "make check"
+            echo '```'
+            echo
+            echo "Changed point names, types, sizes or scale factors change what callers of the library"
+            echo "see, and belong in the release notes."
+            echo
+            echo "_Last checked by [this workflow run](${RUN_URL}). This issue is updated by the"
+            echo "weekly check and closed automatically once \`models/\` is in sync._"
+          } > body.md
+          if [ -n "${ISSUE_NUMBER}" ]; then
+            gh issue edit "${ISSUE_NUMBER}" --body-file body.md
+            echo "Updated issue #${ISSUE_NUMBER}."
+          else
+            gh issue create --title "${ISSUE_TITLE}" --body-file body.md
+          fi
+
+      - name: Close the tracking issue when in sync
+        if: steps.check.outputs.status == '0' && steps.issue.outputs.number != ''
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh issue close "${ISSUE_NUMBER}" --comment "\`models/\` is in sync with sunspec/models again."

@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 
+// Command gen generates registry/models_gen.go from the SunSpec JSON model
+// definitions in models/. Run it with "go run ./internal/gen" or "make generate".
 package main
 
 import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,35 +22,46 @@ func main() {
 	modelsDir := filepath.Join(root, "models")
 	outFile := filepath.Join(root, "registry", "models_gen.go")
 
-	models, err := schema.ParseDir(modelsDir)
-	if err != nil {
+	if err := run(modelsDir, outFile, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "gen: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+// run parses the model definitions in modelsDir, writes the generated Go
+// source to outFile (creating its directory if needed) and reports what it
+// wrote on stdout.
+func run(modelsDir, outFile string, stdout io.Writer) error {
+	models, err := schema.ParseDir(modelsDir)
+	if err != nil {
+		return err
 	}
 
 	src, err := generate(models)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gen: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outFile), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "gen: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	if err := os.WriteFile(outFile, src, 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "gen: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
-	fmt.Printf("gen: wrote %s (%d models, %d bytes)\n", outFile, len(models), len(src))
+	_, _ = fmt.Fprintf(stdout, "gen: wrote %s (%d models, %d bytes)\n", outFile, len(models), len(src))
+	return nil
 }
 
+// projectRoot returns the repository root, derived from this source file's
+// location.
 func projectRoot() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..")
 }
 
+// generate returns the gofmt-formatted source of registry/models_gen.go for
+// the given models. Models with ID 0 are skipped.
 func generate(models []schema.ModelDef) ([]byte, error) {
 	var buf bytes.Buffer
 
@@ -67,6 +81,7 @@ func generate(models []schema.ModelDef) ([]byte, error) {
 	return format.Source(buf.Bytes())
 }
 
+// writeModel emits one Register call with the model's whole group tree.
 func writeModel(buf *bytes.Buffer, m schema.ModelDef) {
 	g := m.Group
 	label := g.Label
@@ -74,102 +89,113 @@ func writeModel(buf *bytes.Buffer, m schema.ModelDef) {
 		label = g.Name
 	}
 
-	fixedPoints := g.Points
-	var repeatingGroup *schema.GroupDef
-	for i := range g.Groups {
-		rg := &g.Groups[i]
-		if rg.Count.IsRepeating() || rg.Count.IntVal == 0 {
-			repeatingGroup = rg
-			break
-		}
-	}
-
 	fmt.Fprintf(buf, "\tRegister(&ModelMeta{\n")
 	fmt.Fprintf(buf, "\t\tID:    %d,\n", m.ID)
 	fmt.Fprintf(buf, "\t\tName:  %s,\n", goStr(g.Name))
 	fmt.Fprintf(buf, "\t\tLabel: %s,\n", goStr(label))
 	fmt.Fprintf(buf, "\t\tDesc:  %s,\n", goStr(g.Desc))
-
-	if len(fixedPoints) > 0 {
-		writeGroup(buf, "FixedBlock", g.Name, g.Label, fixedPoints, false)
-	}
-	if repeatingGroup != nil {
-		writeGroup(buf, "RepeatingBlock", repeatingGroup.Name, repeatingGroup.Label, repeatingGroup.Points, true)
-	}
-
+	buf.WriteString("\t\tGroup: &GroupMeta")
+	// The top-level group occurs exactly once, whatever its definition says.
+	writeGroup(buf, g, 1, "")
+	buf.WriteString(",\n")
 	fmt.Fprintf(buf, "\t})\n")
 }
 
-func writeGroup(buf *bytes.Buffer, field, name, label string, points []schema.PointDef, repeating bool) {
-	type pinfo struct {
-		schema.PointDef
-		off int
+// writeGroup emits the body of one GroupMeta literal (from the opening brace
+// to the closing one), including its nested groups. Point offsets are assigned
+// consecutively within the group; a point without a size occupies one register.
+func writeGroup(buf *bytes.Buffer, g schema.GroupDef, count int, countPoint string) {
+	buf.WriteString("{\n")
+	fmt.Fprintf(buf, "Name: %s,\n", goStr(g.Name))
+	if g.Label != "" {
+		fmt.Fprintf(buf, "Label: %s,\n", goStr(g.Label))
 	}
+	if g.Desc != "" {
+		fmt.Fprintf(buf, "Desc: %s,\n", goStr(g.Desc))
+	}
+	typ := g.Type
+	if typ == "" {
+		typ = "group"
+	}
+	fmt.Fprintf(buf, "Type: %s,\n", goStr(typ))
+	if countPoint != "" {
+		fmt.Fprintf(buf, "CountPoint: %s,\n", goStr(countPoint))
+	} else {
+		fmt.Fprintf(buf, "Count: %d,\n", count)
+	}
+
 	offset := 0
-	var items []pinfo
-	for _, p := range points {
+	var points bytes.Buffer
+	for _, p := range g.Points {
 		sz := p.Size
 		if sz == 0 {
 			sz = 1
 		}
-		items = append(items, pinfo{p, offset})
+		writePoint(&points, p, sz, offset)
 		offset += sz
 	}
-	totalLen := offset
-
-	fmt.Fprintf(buf, "\t\t%s: &GroupMeta{\n", field)
-	fmt.Fprintf(buf, "\t\t\tName:      %s,\n", goStr(name))
-	fmt.Fprintf(buf, "\t\t\tLabel:     %s,\n", goStr(label))
-	fmt.Fprintf(buf, "\t\t\tLength:    %d,\n", totalLen)
-	fmt.Fprintf(buf, "\t\t\tRepeating: %v,\n", repeating)
-	fmt.Fprintf(buf, "\t\t\tPoints: []PointMeta{\n")
-
-	for _, item := range items {
-		p := item.PointDef
-		sz := p.Size
-		if sz == 0 {
-			sz = 1
-		}
-		fmt.Fprintf(buf, "\t\t\t\t{Name: %s, Label: %s, Desc: %s, Type: %s, Size: %d, Offset: %d",
-			goStr(p.Name), goStr(p.Label), goStr(p.Desc), goStr(p.Type), sz, item.off)
-		if p.SF.IsSet {
-			fmt.Fprintf(buf, ", SF: %s", goStr(p.SF.String()))
-			if p.SF.IsLiteral {
-				fmt.Fprintf(buf, ", SFLiteral: %d, SFIsLiteral: true", p.SF.IntVal)
-			}
-		}
-		if p.Units != "" {
-			fmt.Fprintf(buf, ", Units: %s", goStr(p.Units))
-		}
-		access := p.Access
-		if access == "" {
-			access = "R"
-		}
-		fmt.Fprintf(buf, ", Access: %s", goStr(access))
-		if p.Mandatory == "M" {
-			buf.WriteString(", Mandatory: true")
-		}
-		if p.Static == "S" {
-			buf.WriteString(", Static: true")
-		}
-		if len(p.Symbols) > 0 {
-			buf.WriteString(", Symbols: []SymbolMeta{")
-			for i, s := range p.Symbols {
-				if i > 0 {
-					buf.WriteString(", ")
-				}
-				fmt.Fprintf(buf, "{Name: %s, Value: %d, Label: %s}",
-					goStr(s.Name), s.Value, goStr(s.Label))
-			}
-			buf.WriteString("}")
-		}
+	fmt.Fprintf(buf, "Length: %d,\n", offset)
+	if len(g.Points) > 0 {
+		buf.WriteString("Points: []PointMeta{\n")
+		buf.Write(points.Bytes())
 		buf.WriteString("},\n")
 	}
 
-	buf.WriteString("\t\t\t},\n")
-	buf.WriteString("\t\t},\n")
+	if len(g.Groups) > 0 {
+		buf.WriteString("Groups: []*GroupMeta{\n")
+		for _, child := range g.Groups {
+			if child.Count.IsString {
+				writeGroup(buf, child, 0, child.Count.StringVal)
+			} else {
+				writeGroup(buf, child, child.Count.Fixed(), "")
+			}
+			buf.WriteString(",\n")
+		}
+		buf.WriteString("},\n")
+	}
+	buf.WriteString("}")
 }
 
+// writePoint emits one PointMeta literal followed by a comma and a newline.
+func writePoint(buf *bytes.Buffer, p schema.PointDef, size, offset int) {
+	fmt.Fprintf(buf, "{Name: %s, Label: %s, Desc: %s, Type: %s, Size: %d, Offset: %d",
+		goStr(p.Name), goStr(p.Label), goStr(p.Desc), goStr(p.Type), size, offset)
+	if p.SF.IsSet {
+		fmt.Fprintf(buf, ", SF: %s", goStr(p.SF.String()))
+		if p.SF.IsLiteral {
+			fmt.Fprintf(buf, ", SFLiteral: %d, SFIsLiteral: true", p.SF.IntVal)
+		}
+	}
+	if p.Units != "" {
+		fmt.Fprintf(buf, ", Units: %s", goStr(p.Units))
+	}
+	access := p.Access
+	if access == "" {
+		access = "R"
+	}
+	fmt.Fprintf(buf, ", Access: %s", goStr(access))
+	if p.Mandatory == "M" {
+		buf.WriteString(", Mandatory: true")
+	}
+	if p.Static == "S" {
+		buf.WriteString(", Static: true")
+	}
+	if len(p.Symbols) > 0 {
+		buf.WriteString(", Symbols: []SymbolMeta{")
+		for i, s := range p.Symbols {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			fmt.Fprintf(buf, "{Name: %s, Value: %d, Label: %s}",
+				goStr(s.Name), s.Value, goStr(s.Label))
+		}
+		buf.WriteString("}")
+	}
+	buf.WriteString("},\n")
+}
+
+// goStr returns s as a double-quoted Go string literal, escaping backslash,
+// double quote, newline and tab.
 func goStr(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)

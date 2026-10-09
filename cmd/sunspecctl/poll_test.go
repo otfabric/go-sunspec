@@ -119,3 +119,38 @@ func TestPollLoopIterationGetsTimeout(t *testing.T) {
 		t.Fatal("expected each iteration to get its own timeout")
 	}
 }
+
+// An error caused by the cancellation itself is not reported: Ctrl-C during a
+// read ends the loop quietly.
+func TestPollLoopSwallowsErrorAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	calls := 0
+	err := pollLoop(ctx, time.Millisecond, 5, func(iterCtx context.Context, i int) error {
+		calls++
+		cancel()
+		<-iterCtx.Done() // the per-iteration context is derived from ctx
+		return iterCtx.Err()
+	})
+	if err != nil {
+		t.Fatalf("err = %v, want nil when the failure is due to cancellation", err)
+	}
+	if calls != 1 {
+		t.Fatalf("fn ran %d times, want 1", calls)
+	}
+}
+
+// An iteration that outlives --timeout fails the loop with the deadline error.
+func TestPollLoopIterationTimeoutIsAnError(t *testing.T) {
+	flagTimeout = 20 * time.Millisecond
+	defer func() { flagTimeout = 10 * time.Second }()
+
+	err := pollLoop(context.Background(), time.Millisecond, 3, func(ctx context.Context, i int) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	}
+}

@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: MIT
 
+// Command sunspecctl inspects SunSpec devices over Modbus: it detects the
+// SunSpec marker, lists the models a device exposes, and reads or polls
+// decoded models and points.
 package main
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -16,12 +20,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Global flag values. newRootCmd binds them to the root command's persistent
+// flags and thereby resets them to their defaults.
 var (
 	flagURL     string
 	flagUnitID  uint8
 	flagTimeout time.Duration
 	flagJSON    bool
 	flagRaw     bool
+
+	// Serial-line settings, used with rtu:// and ascii:// URLs only.
+	flagBaud     uint
+	flagDataBits uint
+	flagParity   string
+	flagStopBits uint
 
 	// Build metadata set at build time via -ldflags.
 	version   = "dev"
@@ -31,6 +43,15 @@ var (
 )
 
 func main() {
+	if err := newRootCmd().Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+// newRootCmd builds the sunspecctl command tree. Commands write their output
+// to the command's output and error streams (os.Stdout and os.Stderr unless
+// overridden with SetOut and SetErr).
+func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:               "sunspecctl",
 		Short:             "SunSpec Modbus tool for inspecting solar inverters and meters",
@@ -42,14 +63,21 @@ func main() {
 	root.PersistentFlags().DurationVar(&flagTimeout, "timeout", 10*time.Second, "Operation timeout")
 	root.PersistentFlags().BoolVar(&flagJSON, "json", false, "Output as JSON")
 	root.PersistentFlags().BoolVar(&flagRaw, "raw", false, "Include raw register hex in output")
+	root.PersistentFlags().UintVar(&flagBaud, "baud", 0, "Serial baud rate for rtu:// and ascii:// URLs (0 = 19200)")
+	root.PersistentFlags().UintVar(&flagDataBits, "data-bits", 0, "Serial data bits, 5-8 (0 = 8 for rtu://, 7 for ascii://)")
+	root.PersistentFlags().StringVar(&flagParity, "parity", "none", "Serial parity: none, even or odd")
+	root.PersistentFlags().UintVar(&flagStopBits, "stop-bits", 0, "Serial stop bits, 1 or 2 (0 = 2 without parity, 1 with parity)")
+	_ = root.RegisterFlagCompletionFunc("parity", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return []string{"none", "even", "odd"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	root.AddCommand(detectCmd(), modelsCmd(), readCmd(), readModelCmd(), readPointCmd(), pollCmd(), pollModelCmd(), pollPointCmd(), completionCmd(root), versionCmd())
 
-	if err := root.Execute(); err != nil {
-		os.Exit(1)
-	}
+	return root
 }
 
+// completionCmd returns the command that prints a shell completion script for
+// root.
 func completionCmd(root *cobra.Command) *cobra.Command {
 	return &cobra.Command{
 		Use:   "completion [bash|zsh|fish|powershell]",
@@ -75,13 +103,13 @@ To load completions:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch args[0] {
 			case "bash":
-				return root.GenBashCompletion(os.Stdout)
+				return root.GenBashCompletion(cmd.OutOrStdout())
 			case "zsh":
-				return root.GenZshCompletion(os.Stdout)
+				return root.GenZshCompletion(cmd.OutOrStdout())
 			case "fish":
-				return root.GenFishCompletion(os.Stdout, true)
+				return root.GenFishCompletion(cmd.OutOrStdout(), true)
 			case "powershell":
-				return root.GenPowerShellCompletionWithDesc(os.Stdout)
+				return root.GenPowerShellCompletionWithDesc(cmd.OutOrStdout())
 			default:
 				return fmt.Errorf("unsupported shell: %s", args[0])
 			}
@@ -89,12 +117,44 @@ To load completions:
 	}
 }
 
-func newClient() (*modbus.Client, func(), error) {
+// clientConfig builds the Modbus client configuration from the global flags.
+// The serial-line settings only take effect for rtu:// and ascii:// URLs;
+// go-modbus fills in the defaults for the ones left at zero.
+func clientConfig() (modbus.Config, error) {
 	conf := modbus.Config{
 		URL:         flagURL,
 		Timeout:     flagTimeout,
 		DialTimeout: 5 * time.Second,
 		Logger:      modbus.NopLogger(),
+		Speed:       flagBaud,
+		DataBits:    flagDataBits,
+		StopBits:    flagStopBits,
+	}
+	switch strings.ToLower(strings.TrimSpace(flagParity)) {
+	case "", "n", "none":
+		conf.Parity = modbus.ParityNone
+	case "e", "even":
+		conf.Parity = modbus.ParityEven
+	case "o", "odd":
+		conf.Parity = modbus.ParityOdd
+	default:
+		return conf, fmt.Errorf("invalid --parity %q: use none, even or odd", flagParity)
+	}
+	if flagDataBits != 0 && (flagDataBits < 5 || flagDataBits > 8) {
+		return conf, fmt.Errorf("invalid --data-bits %d: use 5, 6, 7 or 8", flagDataBits)
+	}
+	if flagStopBits > 2 {
+		return conf, fmt.Errorf("invalid --stop-bits %d: use 1 or 2", flagStopBits)
+	}
+	return conf, nil
+}
+
+// newClient creates and opens a Modbus client for the --url flag. The returned
+// function closes it.
+func newClient() (*modbus.Client, func(), error) {
+	conf, err := clientConfig()
+	if err != nil {
+		return nil, nil, err
 	}
 	client, err := modbus.New(conf)
 	if err != nil {
@@ -106,17 +166,20 @@ func newClient() (*modbus.Client, func(), error) {
 	return client, func() { _ = client.Close() }, nil
 }
 
+// discoverOpts returns the discovery options selected by the global flags.
 func discoverOpts() *sunspec.DiscoverOptions {
 	return &sunspec.DiscoverOptions{UnitID: flagUnitID}
 }
 
 // --- version ---
 
+// versionCmd returns the command that prints the build metadata.
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the sunspecctl version",
 		Run: func(cmd *cobra.Command, args []string) {
+			out := cmd.OutOrStdout()
 			if flagJSON {
 				info := map[string]string{"version": version}
 				if tag != "" {
@@ -128,18 +191,18 @@ func versionCmd() *cobra.Command {
 				if buildDate != "" {
 					info["buildDate"] = buildDate
 				}
-				_ = printJSON(info)
+				_ = printJSON(out, info)
 				return
 			}
-			fmt.Printf("sunspecctl %s\n", version)
+			_, _ = fmt.Fprintf(out, "sunspecctl %s\n", version)
 			if tag != "" {
-				fmt.Printf("tag:       %s\n", tag)
+				_, _ = fmt.Fprintf(out, "tag:       %s\n", tag)
 			}
 			if commit != "" {
-				fmt.Printf("commit:    %s\n", commit)
+				_, _ = fmt.Fprintf(out, "commit:    %s\n", commit)
 			}
 			if buildDate != "" {
-				fmt.Printf("built:     %s\n", buildDate)
+				_, _ = fmt.Fprintf(out, "built:     %s\n", buildDate)
 			}
 		},
 	}
@@ -147,6 +210,7 @@ func versionCmd() *cobra.Command {
 
 // --- detect ---
 
+// detectCmd returns the command that probes for the SunSpec marker.
 func detectCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "detect",
@@ -167,15 +231,16 @@ func detectCmd() *cobra.Command {
 			}
 
 			if flagJSON {
-				return printJSON(result)
+				return printJSON(cmd.OutOrStdout(), result)
 			}
 
-			fmt.Printf("Detected:     %v\n", result.Detected)
-			fmt.Printf("Unit ID:      %d\n", result.UnitID)
-			fmt.Printf("Base Address: %d\n", result.BaseAddress)
-			fmt.Printf("Reg Type:     %d\n", result.RegType)
-			fmt.Printf("Marker:       0x%04X 0x%04X\n", result.Marker[0], result.Marker[1])
-			fmt.Printf("Attempts:     %d\n", len(result.Attempts))
+			out := cmd.OutOrStdout()
+			_, _ = fmt.Fprintf(out, "Detected:     %v\n", result.Detected)
+			_, _ = fmt.Fprintf(out, "Unit ID:      %d\n", result.UnitID)
+			_, _ = fmt.Fprintf(out, "Base Address: %d\n", result.BaseAddress)
+			_, _ = fmt.Fprintf(out, "Reg Type:     %d\n", result.RegType)
+			_, _ = fmt.Fprintf(out, "Marker:       0x%04X 0x%04X\n", result.Marker[0], result.Marker[1])
+			_, _ = fmt.Fprintf(out, "Attempts:     %d\n", len(result.Attempts))
 			return nil
 		},
 	}
@@ -183,6 +248,7 @@ func detectCmd() *cobra.Command {
 
 // --- models ---
 
+// modelsCmd returns the command that lists the models a device exposes.
 func modelsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "models",
@@ -203,10 +269,10 @@ func modelsCmd() *cobra.Command {
 			}
 
 			if flagJSON {
-				return printJSON(device.Discovery)
+				return printJSON(cmd.OutOrStdout(), device.Discovery)
 			}
 
-			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "ID\tNAME\tSTART\tLENGTH\tSCHEMA")
 			for _, m := range device.Discovery.Models {
 				schema := "yes"
@@ -224,6 +290,7 @@ func modelsCmd() *cobra.Command {
 
 // --- read ---
 
+// readCmd returns the command that reads and prints every model once.
 func readCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "read",
@@ -245,15 +312,15 @@ func readCmd() *cobra.Command {
 
 			results, err := device.ReadAll(ctx)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: partial read: %v\n", err)
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: partial read: %v\n", err)
 			}
 
 			if flagJSON {
-				return printJSON(results)
+				return printJSON(cmd.OutOrStdout(), results)
 			}
 
 			for _, dm := range results {
-				printDecodedModel(dm)
+				printDecodedModel(cmd.OutOrStdout(), dm)
 			}
 			return nil
 		},
@@ -262,6 +329,7 @@ func readCmd() *cobra.Command {
 
 // --- read-model ---
 
+// readModelCmd returns the command that reads and prints one model.
 func readModelCmd() *cobra.Command {
 	var modelID uint16
 
@@ -289,10 +357,10 @@ func readModelCmd() *cobra.Command {
 			}
 
 			if flagJSON {
-				return printJSON(dm)
+				return printJSON(cmd.OutOrStdout(), dm)
 			}
 
-			printDecodedModel(dm)
+			printDecodedModel(cmd.OutOrStdout(), dm)
 			return nil
 		},
 	}
@@ -304,6 +372,7 @@ func readModelCmd() *cobra.Command {
 
 // --- read-point ---
 
+// readPointCmd returns the command that reads and prints one point.
 func readPointCmd() *cobra.Command {
 	var (
 		modelID   uint16
@@ -339,25 +408,10 @@ func readPointCmd() *cobra.Command {
 			}
 
 			if flagJSON {
-				return printJSON(dp)
+				return printJSON(cmd.OutOrStdout(), dp)
 			}
 
-			fmt.Printf("Point:   %s\n", dp.Name)
-			fmt.Printf("Type:    %s\n", dp.Type)
-			fmt.Printf("Raw:     %v\n", dp.RawValue)
-			if dp.ScaledValue != nil {
-				fmt.Printf("Scaled:  %g\n", *dp.ScaledValue)
-			}
-			if dp.Units != "" {
-				fmt.Printf("Units:   %s\n", dp.Units)
-			}
-			if len(dp.Symbols) > 0 {
-				fmt.Printf("Symbols: %s\n", strings.Join(dp.Symbols, ", "))
-			}
-			if flagRaw {
-				fmt.Printf("Offset:  %d\n", dp.RegisterOffset)
-				fmt.Printf("Count:   %d\n", dp.RegisterCount)
-			}
+			printPoint(cmd.OutOrStdout(), dp)
 			return nil
 		},
 	}
@@ -371,44 +425,70 @@ func readPointCmd() *cobra.Command {
 
 // --- output helpers ---
 
-func printJSON(v interface{}) error {
-	enc := json.NewEncoder(os.Stdout)
+// printJSON writes v to out as indented JSON followed by a newline.
+func printJSON(out io.Writer, v interface{}) error {
+	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
 }
 
-func printDecodedModel(dm *sunspec.DecodedModel) {
-	fmt.Printf("=== Model %d: %s ===\n", dm.ModelID, dm.Name)
-
-	if dm.FixedBlock != nil {
-		printBlock("Fixed", dm.FixedBlock)
+// printPoint writes a single point as "Key: value" lines. With --raw it also
+// prints the point's register offset and count.
+func printPoint(out io.Writer, dp *sunspec.DecodedPoint) {
+	_, _ = fmt.Fprintf(out, "Point:   %s\n", dp.Name)
+	_, _ = fmt.Fprintf(out, "Type:    %s\n", dp.Type)
+	_, _ = fmt.Fprintf(out, "Raw:     %v\n", dp.RawValue)
+	if dp.ScaledValue != nil {
+		_, _ = fmt.Fprintf(out, "Scaled:  %g\n", *dp.ScaledValue)
 	}
+	if dp.Units != "" {
+		_, _ = fmt.Fprintf(out, "Units:   %s\n", dp.Units)
+	}
+	if len(dp.Symbols) > 0 {
+		_, _ = fmt.Fprintf(out, "Symbols: %s\n", strings.Join(dp.Symbols, ", "))
+	}
+	if flagRaw {
+		_, _ = fmt.Fprintf(out, "Offset:  %d\n", dp.RegisterOffset)
+		_, _ = fmt.Fprintf(out, "Count:   %d\n", dp.RegisterCount)
+	}
+}
 
-	for i, rb := range dm.RepeatingBlocks {
-		printBlock(fmt.Sprintf("Repeating[%d]", i), rb)
+// printDecodedModel writes a model as one table per group instance, listing
+// only the implemented points, followed by its warnings. Nested groups are
+// indented under the group that contains them. With --raw it also dumps the
+// model's raw registers in hex.
+func printDecodedModel(out io.Writer, dm *sunspec.DecodedModel) {
+	_, _ = fmt.Fprintf(out, "=== Model %d: %s ===\n", dm.ModelID, dm.Name)
+
+	if dm.Group != nil {
+		printGroup(out, "Fixed", dm.Group, "  ")
 	}
 
 	if flagRaw && len(dm.RawRegisters) > 0 {
-		fmt.Printf("  Raw registers (%d):", len(dm.RawRegisters))
+		_, _ = fmt.Fprintf(out, "  Raw registers (%d):", len(dm.RawRegisters))
 		for i, r := range dm.RawRegisters {
 			if i%16 == 0 {
-				fmt.Printf("\n    %04d:", i)
+				_, _ = fmt.Fprintf(out, "\n    %04d:", i)
 			}
-			fmt.Printf(" %04X", r)
+			_, _ = fmt.Fprintf(out, " %04X", r)
 		}
-		fmt.Println()
+		_, _ = fmt.Fprintln(out)
 	}
 
 	for _, w := range dm.Warnings {
-		fmt.Printf("  WARNING: %s\n", w)
+		_, _ = fmt.Fprintf(out, "  WARNING: %s\n", w)
 	}
-	fmt.Println()
+	_, _ = fmt.Fprintln(out)
 }
 
-func printBlock(label string, block *sunspec.DecodedBlock) {
-	fmt.Printf("  [%s]\n", label)
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	for _, p := range block.Points {
+// printGroup writes the implemented points of one group instance as an
+// aligned table of name, type and value (scaled when a scale factor applies),
+// then the instances nested inside it, labelled "name index" and indented one
+// level deeper.
+func printGroup(out io.Writer, label string, g *sunspec.DecodedGroup, indent string) {
+	_, _ = fmt.Fprintf(out, "%s[%s]\n", indent, label)
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	for _, p := range g.Points {
 		if !p.Implemented {
 			continue
 		}
@@ -423,7 +503,10 @@ func printBlock(label string, block *sunspec.DecodedBlock) {
 		if len(p.Symbols) > 0 {
 			extra += " [" + strings.Join(p.Symbols, ", ") + "]"
 		}
-		_, _ = fmt.Fprintf(w, "    %s\t%s\t%s%s\n", p.Name, p.Type, val, extra)
+		_, _ = fmt.Fprintf(w, "%s  %s\t%s\t%s%s\n", indent, p.Name, p.Type, val, extra)
 	}
 	_ = w.Flush()
+	for _, c := range g.Groups {
+		printGroup(out, fmt.Sprintf("%s %d", c.Name, c.Index), c, indent+"  ")
+	}
 }

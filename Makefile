@@ -1,4 +1,4 @@
-.PHONY: help all generate build build-cli check test coverage coverage-html coverage-clean coverage-check cover fmt vet lint lint-ci vuln install clean
+.PHONY: help all generate sync models-check build build-cli build-all release-all check test coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln install clean
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -7,6 +7,13 @@ help: ## This help
 
 # Ignore a parent go.work (e.g. otfabric/go.work) so this module builds standalone.
 export GOWORK := off
+
+# CI formats and lints with the Go version from go.mod, not with the toolchain installed here.
+# gofmt's output changes between Go releases (comment alignment, for one), so formatting is
+# done with that version, and `fmt-check` also requires the local gofmt to agree: a file that
+# two versions format differently fails CI on one side or the other.
+GO_MOD_VERSION := $(shell sed -nE 's/^go ([0-9]+\.[0-9]+).*/\1/p' go.mod | head -n1)
+GOFMT_CI = $(shell GOTOOLCHAIN=go$(GO_MOD_VERSION).0 go env GOROOT)/bin/gofmt
 
 APP_NAME    = sunspecctl
 APP_SRC     = ./cmd/sunspecctl
@@ -18,9 +25,9 @@ COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
 BUILD_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS     = -ldflags "-s -w -X main.version=$(VERSION) -X main.tag=$(TAG) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)"
 
-# Library packages for coverage gates (exclude CLI, codegen, and test helpers).
-TEST_PKGS     := . ./registry
-COVERAGE_MIN  := 75
+# Packages measured by the coverage gate: everything, as in CI.
+TEST_PKGS     := ./...
+COVERAGE_MIN  := 90
 
 all: check build ## Run all checks and build library + CLI
 
@@ -33,13 +40,16 @@ sync: ## Sync SunSpec JSON models from upstream and regenerate
 	@./sync-models.sh
 	@$(MAKE) generate
 
-check: fmt vet lint lint-ci vuln test coverage-check ## Run all checks (format, vet, lint, test, coverage)
+models-check: ## Report SunSpec models that are new, changed or removed upstream (read-only)
+	@./check-models.sh
+
+check: fmt fmt-check vet lint lint-ci vuln test coverage-check ## Run all checks (format, vet, lint, test, coverage)
 
 test: ## Run unit and integration tests with race detector
 	@echo "Running tests (race detector)"
 	@go test -count=1 -race ./...
 
-coverage: ## Run library tests with coverage profile and text summary
+coverage: ## Run tests with coverage profile and text summary
 	@echo "Running coverage on $(TEST_PKGS)"
 	@go test -count=1 -race -coverprofile=coverage.out -covermode=atomic $(TEST_PKGS)
 	@go tool cover -func=coverage.out | tee coverage.txt
@@ -48,7 +58,7 @@ coverage-html: coverage ## Generate HTML coverage report (coverage.html)
 	@echo "Generating HTML coverage report"
 	@go tool cover -html=coverage.out -o coverage.html
 
-coverage-check: ## Fail if library coverage is below $(COVERAGE_MIN)%
+coverage-check: ## Fail if total coverage is below $(COVERAGE_MIN)%
 	@echo "Running coverage check (minimum $(COVERAGE_MIN)%) on $(TEST_PKGS)"
 	@go test -count=1 -race -coverprofile=coverage.out -covermode=atomic $(TEST_PKGS)
 	@go tool cover -func=coverage.out | tee coverage.txt
@@ -62,9 +72,20 @@ cover: coverage-html ## Open coverage report in browser
 	@echo "Opening coverage report in browser"
 	@go tool cover -html=coverage.out
 
-fmt: ## Format Go code with gofmt
-	@echo "Running gofmt"
-	@gofmt -w .
+fmt: ## Format Go code with the gofmt of the Go version in go.mod (what CI uses)
+	@echo "Running gofmt (go$(GO_MOD_VERSION))"
+	@$(GOFMT_CI) -w .
+
+fmt-check: ## Fail if the go.mod-version gofmt or the local gofmt would change any file
+	@echo "Checking formatting (gofmt go$(GO_MOD_VERSION) and local $$(go env GOVERSION))"
+	@ci="$$($(GOFMT_CI) -l .)"; loc="$$(gofmt -l .)"; \
+	if [ -n "$$ci$$loc" ]; then \
+		[ -z "$$ci" ] || { echo "Not formatted for gofmt go$(GO_MOD_VERSION) (CI):"; echo "$$ci"; }; \
+		[ -z "$$loc" ] || { echo "Not formatted for the local gofmt:"; echo "$$loc"; }; \
+		echo "Files must be stable under both. Run 'make fmt'; if the two versions still disagree,"; \
+		echo "restructure the code they format differently (e.g. move trailing comments onto their own lines)."; \
+		exit 1; \
+	fi
 
 vet: ## Run go vet on all packages
 	@echo "Running go vet"

@@ -29,22 +29,43 @@ var (
 	// a multi-chunk Modbus read. The underlying Modbus error is wrapped.
 	ErrPartialRead = errors.New("sunspec: partial read")
 
-	// Re-export modbus chain errors for convenience.
-	ErrModelChainInvalid       = modbus.ErrSunSpecModelChainInvalid
+	// ErrModelChainInvalid indicates a malformed model chain: a model with
+	// length zero that is not the end marker, or a chain that runs past the
+	// end of the register address space. It is the same value as
+	// modbus.ErrSunSpecModelChainInvalid.
+	ErrModelChainInvalid = modbus.ErrSunSpecModelChainInvalid
+
+	// ErrModelChainLimitExceeded indicates the model chain extends further
+	// from the base address than DiscoverOptions.MaxAddressSpan allows. It is
+	// the same value as modbus.ErrSunSpecModelChainLimitExceeded.
 	ErrModelChainLimitExceeded = modbus.ErrSunSpecModelChainLimitExceeded
 )
+
+// errNilClient is returned instead of dereferencing a nil *modbus.Client.
+var errNilClient = fmt.Errorf("sunspec: nil modbus client: %w", modbus.ErrUnexpectedParameters)
 
 // DecodeError describes a decode failure with optional location detail.
 // It unwraps to ErrDecode (or another cause) for errors.Is matching.
 type DecodeError struct {
-	ModelID   uint16
+	// ModelID is the model that failed to decode.
+	ModelID uint16
+	// PointName is the point that failed, or empty when the failure concerns
+	// the model as a whole.
 	PointName string
-	Offset    int
+	// Offset is the register offset of the failure within its block. It is
+	// only reported in the message when it is non-zero or PointName is set.
+	Offset int
+	// PointType is the SunSpec type of the failing point, or empty.
 	PointType string
-	Message   string
-	Err       error
+	// Message describes the failure. When empty, Err's message is used.
+	Message string
+	// Err is the cause. A nil Err makes the error unwrap to ErrDecode.
+	Err error
 }
 
+// Error formats the failure as "sunspec: model <id> [point <name>] [type <t>]
+// [offset <n>]: <message>". A nil *DecodeError formats as a generic decode
+// error.
 func (e *DecodeError) Error() string {
 	if e == nil {
 		return "sunspec: decode error"
@@ -69,6 +90,9 @@ func (e *DecodeError) Error() string {
 	return fmt.Sprintf("sunspec: %s: %s", loc, msg)
 }
 
+// Unwrap returns Err, or ErrDecode when Err is nil, so that
+// errors.Is(err, ErrDecode) holds for every DecodeError this package creates.
+// A nil *DecodeError unwraps to nil.
 func (e *DecodeError) Unwrap() error {
 	if e == nil {
 		return nil

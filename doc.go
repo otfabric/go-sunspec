@@ -3,7 +3,7 @@
 // Package sunspec reads SunSpec devices over Modbus.
 //
 // It discovers SunSpec model chains, decodes standard point types, resolves
-// scale factors, and handles repeating blocks. Schemas for standard models are
+// scale factors, and decodes nested and repeating groups. Schemas for standard models are
 // compiled into package registry.
 //
 // # Scope

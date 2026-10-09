@@ -25,7 +25,7 @@ func ExampleDecodeModel() {
 		panic(err)
 	}
 
-	fmt.Println(dm.ModelID, dm.Name != "", dm.FixedBlock != nil)
+	fmt.Println(dm.ModelID, dm.Name != "", dm.Group != nil)
 	// Output:
 	// 1 true true
 }

@@ -184,10 +184,11 @@ func TestDecodeIPv6Addr(t *testing.T) {
 
 func TestDecodeEUI48(t *testing.T) {
 	pm := &registry.PointMeta{Name: "MAC", Type: "eui48", Size: 4}
-	// aa:bb:cc:dd:ee:ff
-	dp, _ := decodePoint([]uint16{0xAABB, 0xCCDD, 0xEEFF, 0x0000}, pm)
-	if dp.RawValue != "aa:bb:cc:dd:ee:ff" {
-		t.Errorf("got %q, want %q", dp.RawValue, "aa:bb:cc:dd:ee:ff")
+	// aa:bb:cc:dd:ee:ff is carried in the low 48 bits: register 0 is zero padding
+	// (as in the SunSpec reference implementation, pysunspec2).
+	dp, _ := decodePoint([]uint16{0x0000, 0xAABB, 0xCCDD, 0xEEFF}, pm)
+	if dp.RawValue != "aa:bb:cc:dd:ee:ff" || !dp.Implemented {
+		t.Errorf("got %q implemented=%v, want %q implemented", dp.RawValue, dp.Implemented, "aa:bb:cc:dd:ee:ff")
 	}
 }
 
@@ -204,8 +205,9 @@ func TestScaleFactorResolution(t *testing.T) {
 		ID:    101,
 		Name:  "test_inverter",
 		Label: "Test Inverter",
-		FixedBlock: &registry.GroupMeta{
+		Group: &registry.GroupMeta{
 			Name:   "test",
+			Count:  1,
 			Length: 3,
 			Points: []registry.PointMeta{
 				{Name: "W", Type: "int16", Size: 1, Offset: 0, SF: "W_SF"},
@@ -223,7 +225,7 @@ func TestScaleFactorResolution(t *testing.T) {
 	}
 
 	// Check W scaled value: 1000 * 10^(-2) = 10.0
-	wPoint := dm.FixedBlock.Points[0]
+	wPoint := dm.Group.Points[0]
 	if wPoint.ScaledValue == nil {
 		t.Fatal("W ScaledValue is nil")
 	}
@@ -235,7 +237,7 @@ func TestScaleFactorResolution(t *testing.T) {
 	}
 
 	// Check V with literal SF -1: 2345 * 10^(-1) = 234.5
-	vPoint := dm.FixedBlock.Points[2]
+	vPoint := dm.Group.Points[2]
 	if vPoint.ScaledValue == nil {
 		t.Fatal("V ScaledValue is nil")
 	}
@@ -248,23 +250,24 @@ func TestRepeatingBlockDecode(t *testing.T) {
 	meta := &registry.ModelMeta{
 		ID:   160,
 		Name: "test_mppt",
-		FixedBlock: &registry.GroupMeta{
+		Group: &registry.GroupMeta{
 			Name:   "mppt",
+			Count:  1,
 			Length: 2,
 			Points: []registry.PointMeta{
 				{Name: "ID", Type: "uint16", Size: 1, Offset: 0},
 				{Name: "L", Type: "uint16", Size: 1, Offset: 1},
 			},
-		},
-		RepeatingBlock: &registry.GroupMeta{
-			Name:      "module",
-			Length:    3,
-			Repeating: true,
-			Points: []registry.PointMeta{
-				{Name: "DCA", Type: "uint16", Size: 1, Offset: 0},
-				{Name: "DCV", Type: "uint16", Size: 1, Offset: 1},
-				{Name: "DCW", Type: "uint16", Size: 1, Offset: 2},
-			},
+			// Count 0: as many instances as the registers hold.
+			Groups: []*registry.GroupMeta{{
+				Name:   "module",
+				Length: 3,
+				Points: []registry.PointMeta{
+					{Name: "DCA", Type: "uint16", Size: 1, Offset: 0},
+					{Name: "DCV", Type: "uint16", Size: 1, Offset: 1},
+					{Name: "DCW", Type: "uint16", Size: 1, Offset: 2},
+				},
+			}},
 		},
 	}
 
@@ -281,23 +284,27 @@ func TestRepeatingBlockDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(dm.RepeatingBlocks) != 3 {
-		t.Fatalf("got %d repeating blocks, want 3", len(dm.RepeatingBlocks))
+	modules := dm.Group.GroupsNamed("module")
+	if len(modules) != 3 || len(dm.Group.Groups) != 3 {
+		t.Fatalf("got %d module instances, want 3", len(modules))
+	}
+	if len(dm.Warnings) != 0 {
+		t.Errorf("unexpected warnings: %q", dm.Warnings)
 	}
 
 	// Check first repeating block
-	rb0 := dm.RepeatingBlocks[0]
-	if rb0.GroupIndex != 1 {
-		t.Errorf("block 0 GroupIndex = %d, want 1", rb0.GroupIndex)
+	rb0 := modules[0]
+	if rb0.Index != 1 {
+		t.Errorf("block 0 Index = %d, want 1", rb0.Index)
 	}
 	if rb0.Points[0].RawValue != uint16(10) {
 		t.Errorf("block 0 DCA = %v, want 10", rb0.Points[0].RawValue)
 	}
 
 	// Check third repeating block
-	rb2 := dm.RepeatingBlocks[2]
-	if rb2.GroupIndex != 3 {
-		t.Errorf("block 2 GroupIndex = %d, want 3", rb2.GroupIndex)
+	rb2 := modules[2]
+	if rb2.Index != 3 {
+		t.Errorf("block 2 Index = %d, want 3", rb2.Index)
 	}
 	if rb2.Points[2].RawValue != uint16(9600) {
 		t.Errorf("block 2 DCW = %v, want 9600", rb2.Points[2].RawValue)

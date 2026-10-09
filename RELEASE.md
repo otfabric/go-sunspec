@@ -1,5 +1,67 @@
 # go-sunspec Releases
 
+## v0.4.0
+
+**Date:** 2026-10-09
+**Previous release:** v0.3.1
+
+## Summary
+
+Models are now decoded as the full tree of groups their definition describes, which fixes the DER curve and trip models that were decoded incompletely; this changes the shape of the decoded model and of the registry (see **Breaking changes**). `sunspecctl` can now reach SunSpec devices on serial lines with non-default settings, the repository watches the official SunSpec model definitions for changes every week, and the project gets the same quality gates as the rest of the otfabric library family: full doc comments, a much larger test suite, and stricter lint, formatting and coverage checks. Built on go-modbus v1.2.1.
+
+## Breaking changes
+
+There are API changes in this release. The module is pre-1.0 and the changes are needed to represent SunSpec models correctly.
+
+- **Decoded models are a group tree.** `DecodedModel.FixedBlock` and `DecodedModel.RepeatingBlocks` are replaced by `DecodedModel.Group`, a `*DecodedGroup` with the model's own `Points` and, in `Groups`, the instances of the groups nested inside it, to any depth. `DecodedBlock` is renamed `DecodedGroup`; it gains `Name` and `Groups`, and `GroupIndex` becomes `Index` (0 for the top-level group, 1..N for nested instances).
+  - `dm.FixedBlock.Points` → `dm.Group.Points`
+  - `dm.RepeatingBlocks` → `dm.Group.Groups` (or `dm.Group.GroupsNamed("module")`)
+  - New helpers: `DecodedModel.Point`, `DecodedGroup.Point`, `FindPoint`, `GroupsNamed`, `Walk`.
+- **The registry is a group tree.** `ModelMeta.FixedBlock` and `ModelMeta.RepeatingBlock` are replaced by `ModelMeta.Group`. `GroupMeta` gains `Desc`, `Type`, `Count`, `CountPoint` and `Groups`; its `Repeating` field is now the method `Repeating()`. `ModelMeta.RepeatingLength()` is removed; `FixedLength()` remains. New helpers `GroupMeta.Group` and `GroupMeta.Point`.
+- **`DecodedPoint.RegisterOffset`** is now the offset from the model's ID register (the index in `RawRegisters`); it used to be relative to the point's block.
+- **`sunspecctl` table output** labels nested groups by name and instance, indented under their parent (`[module 1]`, `[Crv 2]` → `[Pt 1]`), instead of `[Repeating[0]]`. JSON output follows the new `DecodedModel` shape.
+- **Warning texts** for registers that do not fit a group changed, and warnings from nested groups carry the group path.
+
+## Changes
+
+### Added
+
+- **`sunspecctl` serial settings** — new global flags `--baud`, `--data-bits`, `--parity` (`none`, `even`, `odd`) and `--stop-bits` for `rtu://` and `ascii://` URLs. Previously only `--url` was passed on, so a serial device could be reached only at the go-modbus defaults (19200 baud, no parity, 2 stop bits). Example: `sunspecctl models --url rtu:///dev/ttyUSB0 --baud 9600 --stop-bits 1 --unit-id 3`. Invalid values are rejected before the port is opened. The flags are ignored for network URLs.
+- **Modbus ASCII** — `ascii://<device>` and `asciiovertcp://host:port` URLs work with the library and the CLI, through go-modbus v1.2.
+- **Weekly SunSpec models check** — a GitHub Actions workflow ([`models-check.yml`](.github/workflows/models-check.yml)) compares `models/` with [sunspec/models](https://github.com/sunspec/models) every Monday. When upstream has new, changed or removed models it opens an issue (or updates the open one) showing what changed — the points that differ and the JSON diff — and closes it once `models/` is back in sync.
+- **`check-models.sh`** / **`make models-check`** — the read-only check behind that workflow. `--diff` prints the point-level and JSON differences; `--diff-file FILE` writes them to a file.
+- **CONTRIBUTING.md**, **SECURITY.md**, **codecov.yml** (project target 90%).
+- **`.golangci.yml`** — the lint configuration `make lint-ci` refers to (errcheck, govet, staticcheck, ineffassign, misspell, godot, nilerr, exhaustive, gofmt, goimports).
+- **`make fmt-check`** — part of `make check`. Formatting is done with the `gofmt` of the Go version in `go.mod` (the one CI uses), and the check fails if that `gofmt` or the locally installed one would change a file.
+
+### Changed
+
+- **README** — rewritten: what the library does and for whom, supported models, decoded values, serial and other transports, CLI installation, FAQ.
+- **Doc comments** — every exported identifier in `sunspec`, `registry` and `testutil` is documented.
+- **Tests** — statement coverage raised from 58% to **98%** of the library and tooling packages, and from 4% to 99% for `sunspecctl`; the generator, the model parser, the fixture server and every `sunspecctl` command are now tested. A test regenerates the registry from `models/` and fails if `registry/models_gen.go` is out of date.
+- **Coverage gate** — `make check` now measures every package (it was the library packages only) and requires 90% (was 75%). CI tests `cmd/sunspecctl` too.
+- **Not-implemented detection for strings and addresses** — a `string` point that is all NUL, an `ipaddr` of `0.0.0.0`, an all-zero `ipv6addr` and an `eui48` of `FF:FF:FF:FF:FF:FF` are now reported with `Implemented: false`, as the SunSpec specification defines. They used to be reported as implemented, so `sunspecctl` listed empty rows for them. **Behaviour change** for code that relied on `Implemented` being true for these.
+
+### Fixed
+
+- **Models with nested or sibling groups were decoded incompletely.** The registry kept one fixed and one repeating block per model. The DER curve and trip models (705–710, 712) and 64410/64411 lost the groups nested inside their repeating group (the curve points), and model 704 kept only the first of its four sibling groups, treated as repeating. Every group of every model is now in the registry and decoded.
+- **Group counts are taken from the model.** The number of instances of a nested group now comes from its count point (`NCrv`, `NPt`, `NStr`, …) or its fixed count, as the model defines; a group without a count occurs exactly once. Only groups defined with count 0 repeat for the remaining length of the model, as before.
+- **Scale factors in nested groups.** A named scale factor is looked up in the point's own group instance first and then in the enclosing groups, so curve points scaled by a factor defined at the top of the model are scaled. A scale factor that a nested group reports as not implemented does not hide a usable one further out.
+- **Scaled values had floating-point artefacts.** A value such as 95 with scale factor -2 came out as `0.9500000000000001`; it is now exactly `0.95`.
+- **EUI-48 (MAC address) points were decoded from the wrong registers.** An `eui48` point is four registers with the address in the low 48 bits; the decoder read the first three registers, which shifted the address by two bytes and dropped its last two. Affects models 11 and 16.
+- **JSON encoding failed for float models with unimplemented points.** A float point the device reports as not implemented is NaN, which `encoding/json` rejects, so `sunspecctl read --json` (and `read-model`, `read-point`, `poll*`) failed on models such as 111–113 and 211–214, and so did `json.Marshal` on a `DecodedModel`. `DecodedPoint` now encodes non-finite values as `null`; field names are unchanged.
+- **Reads that reached the end of the address space wrapped around.** A model read split into several Modbus requests could wrap from register 65535 to 0 and return those registers as if they were contiguous. Such a range is now rejected before any I/O.
+- **Panics on nil or malformed input** replaced by errors or safe behaviour: a nil `*modbus.Client` (`Detect`, `Discover`, `Open`, `ReadModel`, `ReadPoint`, `ReadAll`), `NewDevice` with a nil discovery result, `DecodeModel` with a nil schema, `registry.Register(nil)`, and caller-supplied schemas whose points have a negative offset or fewer registers than their type needs.
+- **Enum symbols with negative values** no longer match an unimplemented `enum32` value.
+
+## Dependencies
+
+- Go 1.23+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) `v1.1.3` → **v1.2.1** (Modbus ASCII transport, corrected function probing, server and engine fixes; see its release notes)
+- [spf13/cobra](https://github.com/spf13/cobra) v1.10.2 (CLI only)
+
+---
+
 ## v0.3.1
 
 **Date:** 2026-07-30

@@ -7,15 +7,19 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"time"
 
 	"github.com/otfabric/go-sunspec"
 	"github.com/spf13/cobra"
 )
 
-// pollLoop runs fn up to count times (0 = infinite) at the given interval.
-// It prints a header before each iteration and respects context cancellation / SIGINT.
+// pollLoop runs fn up to count times (0 = infinite), waiting interval between
+// the end of one call and the start of the next. Each call gets its own
+// context with the --timeout deadline.
+//
+// The loop ends without error when ctx is cancelled or the process receives
+// SIGINT, also when that makes the running call fail. Any other error from fn
+// ends the loop and is returned.
 func pollLoop(ctx context.Context, interval time.Duration, count int, fn func(ctx context.Context, iteration int) error) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
@@ -42,6 +46,7 @@ func pollLoop(ctx context.Context, interval time.Duration, count int, fn func(ct
 	return nil
 }
 
+// pollCmd returns the command that repeatedly reads and prints every model.
 func pollCmd() *cobra.Command {
 	var (
 		interval time.Duration
@@ -65,19 +70,20 @@ func pollCmd() *cobra.Command {
 				return fmt.Errorf("discover: %w", err)
 			}
 
-			return pollLoop(context.Background(), interval, count, func(ctx context.Context, iteration int) error {
+			out := cmd.OutOrStdout()
+			return pollLoop(cmd.Context(), interval, count, func(ctx context.Context, iteration int) error {
 				results, err := device.ReadAll(ctx)
 				if err != nil {
-					_, _ = fmt.Fprintf(os.Stderr, "warning: partial read: %v\n", err)
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: partial read: %v\n", err)
 				}
 
 				if flagJSON {
-					return printJSON(results)
+					return printJSON(out, results)
 				}
 
-				fmt.Printf("--- poll %d @ %s ---\n", iteration, time.Now().Format(time.RFC3339))
+				_, _ = fmt.Fprintf(out, "--- poll %d @ %s ---\n", iteration, time.Now().Format(time.RFC3339))
 				for _, dm := range results {
-					printDecodedModel(dm)
+					printDecodedModel(out, dm)
 				}
 				return nil
 			})
@@ -89,6 +95,7 @@ func pollCmd() *cobra.Command {
 	return cmd
 }
 
+// pollModelCmd returns the command that repeatedly reads and prints one model.
 func pollModelCmd() *cobra.Command {
 	var (
 		modelID  uint16
@@ -113,18 +120,19 @@ func pollModelCmd() *cobra.Command {
 				return fmt.Errorf("discover: %w", err)
 			}
 
-			return pollLoop(context.Background(), interval, count, func(ctx context.Context, iteration int) error {
+			out := cmd.OutOrStdout()
+			return pollLoop(cmd.Context(), interval, count, func(ctx context.Context, iteration int) error {
 				dm, err := device.ReadModelByID(ctx, modelID)
 				if err != nil {
 					return fmt.Errorf("read model %d: %w", modelID, err)
 				}
 
 				if flagJSON {
-					return printJSON(dm)
+					return printJSON(out, dm)
 				}
 
-				fmt.Printf("--- poll %d @ %s ---\n", iteration, time.Now().Format(time.RFC3339))
-				printDecodedModel(dm)
+				_, _ = fmt.Fprintf(out, "--- poll %d @ %s ---\n", iteration, time.Now().Format(time.RFC3339))
+				printDecodedModel(out, dm)
 				return nil
 			})
 		},
@@ -137,6 +145,7 @@ func pollModelCmd() *cobra.Command {
 	return cmd
 }
 
+// pollPointCmd returns the command that repeatedly reads and prints one point.
 func pollPointCmd() *cobra.Command {
 	var (
 		modelID   uint16
@@ -167,33 +176,19 @@ func pollPointCmd() *cobra.Command {
 				return fmt.Errorf("model %d not found", modelID)
 			}
 
-			return pollLoop(context.Background(), interval, count, func(ctx context.Context, iteration int) error {
+			out := cmd.OutOrStdout()
+			return pollLoop(cmd.Context(), interval, count, func(ctx context.Context, iteration int) error {
 				dp, err := device.ReadPoint(ctx, *inst, pointName)
 				if err != nil {
 					return fmt.Errorf("read point: %w", err)
 				}
 
 				if flagJSON {
-					return printJSON(dp)
+					return printJSON(out, dp)
 				}
 
-				fmt.Printf("--- poll %d @ %s ---\n", iteration, time.Now().Format(time.RFC3339))
-				fmt.Printf("Point:   %s\n", dp.Name)
-				fmt.Printf("Type:    %s\n", dp.Type)
-				fmt.Printf("Raw:     %v\n", dp.RawValue)
-				if dp.ScaledValue != nil {
-					fmt.Printf("Scaled:  %g\n", *dp.ScaledValue)
-				}
-				if dp.Units != "" {
-					fmt.Printf("Units:   %s\n", dp.Units)
-				}
-				if len(dp.Symbols) > 0 {
-					fmt.Printf("Symbols: %s\n", strings.Join(dp.Symbols, ", "))
-				}
-				if flagRaw {
-					fmt.Printf("Offset:  %d\n", dp.RegisterOffset)
-					fmt.Printf("Count:   %d\n", dp.RegisterCount)
-				}
+				_, _ = fmt.Fprintf(out, "--- poll %d @ %s ---\n", iteration, time.Now().Format(time.RFC3339))
+				printPoint(out, dp)
 				return nil
 			})
 		},

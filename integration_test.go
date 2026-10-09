@@ -144,12 +144,12 @@ func TestIntegrationDiscoverAndReadAll(t *testing.T) {
 	if dm1.ModelID != 1 {
 		t.Errorf("decoded model 0 ID = %d, want 1", dm1.ModelID)
 	}
-	if dm1.FixedBlock == nil {
+	if dm1.Group == nil {
 		t.Fatal("model 1 fixed block is nil")
 	}
 
 	// Find Manufacturer point
-	for _, p := range dm1.FixedBlock.Points {
+	for _, p := range dm1.Group.Points {
 		if p.Name == "Mn" {
 			if p.RawValue != "TestManufacturer" {
 				t.Errorf("Mn = %q, want %q", p.RawValue, "TestManufacturer")
@@ -159,7 +159,7 @@ func TestIntegrationDiscoverAndReadAll(t *testing.T) {
 	}
 
 	// Find Serial Number
-	for _, p := range dm1.FixedBlock.Points {
+	for _, p := range dm1.Group.Points {
 		if p.Name == "SN" {
 			if p.RawValue != "SN-12345678" {
 				t.Errorf("SN = %q, want %q", p.RawValue, "SN-12345678")
@@ -195,12 +195,12 @@ func TestIntegrationReadModelByID(t *testing.T) {
 	if dm.ModelID != 101 {
 		t.Errorf("ModelID = %d, want 101", dm.ModelID)
 	}
-	if dm.FixedBlock == nil {
+	if dm.Group == nil {
 		t.Fatal("fixed block is nil")
 	}
 
 	// Check current point A = 1234, A_SF = -2, scaled = 12.34
-	for _, p := range dm.FixedBlock.Points {
+	for _, p := range dm.Group.Points {
 		if p.Name == "A" {
 			if p.RawValue != uint16(1234) {
 				t.Errorf("A raw = %v, want 1234", p.RawValue)

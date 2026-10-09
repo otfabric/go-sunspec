@@ -1,0 +1,15 @@
+# Codecov configuration for go-sunspec.
+# CI uploads coverage for the library and tooling packages; examples are not part of the module.
+coverage:
+  status:
+    project:
+      default:
+        target: 90%
+        threshold: 1%
+    patch:
+      default:
+        target: 70%
+
+ignore:
+  # Generated from models/ by internal/gen.
+  - "registry/models_gen.go"

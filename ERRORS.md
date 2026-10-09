@@ -16,6 +16,8 @@ or re-exports the ones that matter at the SunSpec layer.
 | Multi-chunk register read failed mid-way | `ErrPartialRead` wrapping the Modbus cause |
 | Model chain invalid / size limit | `ErrModelChainInvalid` / `ErrModelChainLimitExceeded` (from go-modbus) |
 | Unsupported point type | Warning on `DecodedModel` (raw registers kept); not a hard error |
+| Nil `*modbus.Client`, or a register range past address 65535 | Error wrapping `modbus.ErrUnexpectedParameters`; nothing is sent |
+| `DecodeModel` with a nil schema | `*DecodeError` wrapping `ErrDecode` |
 | Transport / timeout / Modbus exception | Underlying go-modbus error (often wrapped) |
 
 Prefer `errors.Is` / `errors.As`:

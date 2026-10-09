@@ -12,7 +12,22 @@ import (
 )
 
 // Discover detects SunSpec and enumerates models, returning a Device ready for reading.
+//
+// It walks the model chain from the detected base address up to the end
+// marker and attaches the registry schema to every model it knows. Models
+// without a schema are kept, named "unknown_<ID>", and noted in
+// Device.Discovery.Warnings; they can still be read as raw registers.
+//
+// Discover returns ErrNotSunSpec when no base address holds the marker, and
+// otherwise the Modbus or chain error (ErrModelChainInvalid,
+// ErrModelChainLimitExceeded) that stopped the walk; no partial Device is
+// returned. A nil client is reported as an error wrapping
+// modbus.ErrUnexpectedParameters. The returned Device uses opts.UnitID
+// (1 when opts is nil or the unit ID is zero) and does not own client.
 func Discover(ctx context.Context, client *modbus.Client, opts *DiscoverOptions) (*Device, error) {
+	if client == nil {
+		return nil, errNilClient
+	}
 	reader := &readerAdapter{client: client}
 	gmOpts := opts.toGMSunspecOptions()
 	raw, err := gmsunspec.Discover(ctx, reader, gmOpts)
@@ -69,6 +84,7 @@ func Discover(ctx context.Context, client *modbus.Client, opts *DiscoverOptions)
 }
 
 // Open is a convenience that discovers and returns a Device in one step.
+// It is identical to Discover.
 func Open(ctx context.Context, client *modbus.Client, opts *DiscoverOptions) (*Device, error) {
 	return Discover(ctx, client, opts)
 }
