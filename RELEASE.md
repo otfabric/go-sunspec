@@ -1,5 +1,26 @@
 # go-sunspec Releases
 
+## v0.4.2
+
+**Date:** 2026-10-11
+**Previous release:** v0.4.1
+
+## Summary
+
+Patch release: adopts go-modbus v1.3.0. No API or model changes.
+
+## Changes
+
+### Changed
+
+- **go-modbus** — requires `github.com/otfabric/go-modbus` v1.3.0 (was v1.2.1). What callers of `Client` and users of `sunspecctl` notice on TCP: after a request times out the connection is replaced, so a late response is never taken for the answer to the next request; an open client reconnects by itself after a dropped connection (the request that hits the dead connection still fails); and cancelling the context of a call interrupts the request in flight.
+
+### Unchanged
+
+- No API, wire-format or model changes. Import path remains `github.com/otfabric/go-sunspec`.
+
+---
+
 ## v0.4.1
 
 **Date:** 2026-10-09

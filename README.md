@@ -700,7 +700,7 @@ server. See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Requirements
 
 - Go 1.23+
-- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.2.1+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.3.0+
 
 ## Contributing
 
