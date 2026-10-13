@@ -1,5 +1,31 @@
 # go-sunspec Releases
 
+## v0.5.1
+
+**Date:** 2026-10-13
+**Previous release:** v0.5.0
+
+## Summary
+
+A served device can stay silent: `ServerOptions.SilentToOtherUnits` makes a `Server` ignore requests for another unit ID instead of answering with an exception, and a broadcast (unit ID 0) is no longer answered at all. Both use `modbus.ErrNoResponse` of go-modbus v1.4.0, which v0.5.0 already required. Reading is unchanged.
+
+## Changes
+
+### Added
+
+- **`ServerOptions.SilentToOtherUnits`** — when set, a `Server` does not answer requests addressed to another unit ID: the client runs into its timeout and the connection stays open, as with a device on a serial line. The default is unchanged: such a request is answered with exception 0x0B (gateway target device failed to respond), which tells a client at once that the unit is not there.
+
+### Changed
+
+- **Broadcast requests are not answered** — a request for unit ID 0, the Modbus broadcast address, gets no response from a `Server` and is not carried out. v0.5.0 answered it with exception 0x0B like any other foreign unit ID.
+- **Documentation** — README, API.md and ERRORS.md name go-modbus v1.4.0 as the required version (the v0.5.0 module already required it; its documents still said v1.3.0), and describe the answers to foreign unit IDs and broadcasts.
+
+### Unchanged
+
+- No changes to reading, decoding, encoding, the model definitions or existing signatures. A `Server` created without the new option behaves as in v0.5.0, except for broadcasts.
+
+---
+
 ## v0.5.0
 
 **Date:** 2026-10-13

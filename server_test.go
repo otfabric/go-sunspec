@@ -132,6 +132,24 @@ func TestServerRequestRouting(t *testing.T) {
 	if got, err := holdingRead(srv, 40000, 2); err != nil || got[0] != 0x5375 {
 		t.Errorf("own unit: %v %v", got, err)
 	}
+	// A broadcast is neither answered nor carried out.
+	if _, err := srv.HandleHoldingRegisters(ctx, &modbus.HoldingRegistersRequest{UnitID: 0, Addr: 40005, Quantity: 1, IsWrite: true, Args: []uint16{99}}); !errors.Is(err, modbus.ErrNoResponse) {
+		t.Errorf("broadcast write: %v", err)
+	}
+	if got, _ := holdingRead(srv, 40005, 1); got[0] != 22 {
+		t.Errorf("a broadcast write was carried out: %v", got)
+	}
+	// A silent device does not answer other units at all.
+	silent := ctlServer(t, &ServerOptions{UnitID: 7, SilentToOtherUnits: true})
+	if _, err := silent.HandleHoldingRegisters(ctx, &modbus.HoldingRegistersRequest{UnitID: 1, Addr: 40000, Quantity: 2}); !errors.Is(err, modbus.ErrNoResponse) {
+		t.Errorf("silent device, other unit, holding: %v", err)
+	}
+	if _, err := silent.HandleInputRegisters(ctx, &modbus.InputRegistersRequest{UnitID: 0, Addr: 40000, Quantity: 2}); !errors.Is(err, modbus.ErrNoResponse) {
+		t.Errorf("silent device, broadcast, input: %v", err)
+	}
+	if got, err := holdingRead(silent, 40000, 2); err != nil || got[0] != 0x5375 {
+		t.Errorf("silent device, own unit: %v %v", got, err)
+	}
 	if _, err := srv.HandleInputRegisters(ctx, &modbus.InputRegistersRequest{UnitID: 7, Addr: 40000, Quantity: 2}); !errors.Is(err, modbus.ErrIllegalDataAddress) {
 		t.Errorf("input registers of a holding device: %v", err)
 	}

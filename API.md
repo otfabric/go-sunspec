@@ -248,6 +248,7 @@ type ServerModel struct {
 
 type ServerOptions struct {
     UnitID      uint8          // 0 selects 1
+    SilentToOtherUnits bool    // no answer, instead of exception 0x0B, for other unit IDs (since v0.5.1)
     BaseAddress uint16         // address of the "SunS" marker; zero value is address 0
     RegType     modbus.RegType // HoldingRegister (default) or InputRegister
     OnWrite     func(ctx context.Context, w *ServerWrite) error
@@ -293,7 +294,8 @@ that does not fit below address 65536. A device without models is valid.
 | Read of the configured register type, range inside the device map (it may span models) | The registers |
 | Read touching any address outside the map | Exception 2, illegal data address |
 | Read or write of the other register type | Exception 2 |
-| Any request for another unit ID | Exception 0x0B, gateway target device failed to respond |
+| Any request for another unit ID | Exception 0x0B, gateway target device failed to respond. With `SilentToOtherUnits`: no answer (`modbus.ErrNoResponse`), the client times out, as with a device on a serial line |
+| Any request for unit ID 0 (broadcast) | No answer, and the request is not carried out (since v0.5.1; v0.5.0 answered exception 0x0B) |
 | Coils, discrete inputs | Exception 1, illegal function |
 | FC 22 (mask write), FC 23 (read/write) | Exception 1 (go-modbus answers: the optional handlers are not implemented) |
 

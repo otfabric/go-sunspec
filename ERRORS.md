@@ -60,7 +60,7 @@ if errors.As(err, &dec) {
 | `ErrEncode` | Encode failure (via `*EncodeError`) |
 | `ErrValueOutOfRange` | A value does not fit its point: out of the type's range after scaling, equal to the type's "not implemented" value, a string longer than the point, more group instances than allowed. Always together with `ErrEncode` |
 | `ErrModelLayout` | `NewServer`: a model without data registers, model ID 65535, or a chain past address 65535. `Update`, `SetValues`, `SetPoint`, `SetRegisters`: the change would alter the length or group structure of a served model |
-| `ErrModelChainInvalid` | Re-export of `modbus.ErrSunSpecModelChainInvalid`: a zero-length model that is not the end marker, or a model ending exactly at address 65535. A model whose length runs beyond the address space fails discovery too, but with the go-modbus error for it (`modbus.ErrProtocolError` or the failing read's error in v1.3.0) |
+| `ErrModelChainInvalid` | Re-export of `modbus.ErrSunSpecModelChainInvalid`: a zero-length model that is not the end marker, or a model ending exactly at address 65535. A model whose length runs beyond the address space fails discovery too, but with the go-modbus error for it (`modbus.ErrProtocolError` or the failing read's error in v1.4.0) |
 | `ErrModelChainLimitExceeded` | Re-export of `modbus.ErrSunSpecModelChainLimitExceeded` |
 
 `ErrUnknownModel` does **not** mean “no local schema”. Models without a compiled
@@ -123,7 +123,8 @@ A `Server` reports problems to Modbus clients as exceptions, not as Go errors:
 |---------|-----------|
 | Read or write touching an address outside the device map | 2, illegal data address |
 | Write to a read-only point, a header, the marker, a count point, part of a point, a raw model | 2, illegal data address |
-| Request for another unit ID | 0x0B, gateway target device failed to respond |
+| Request for another unit ID | 0x0B, gateway target device failed to respond; no answer at all with `ServerOptions.SilentToOtherUnits` (since v0.5.1) |
+| Request for unit ID 0 (broadcast) | No answer; the request is not carried out (since v0.5.1) |
 | Coils, discrete inputs, FC 22, FC 23 | 1, illegal function |
 | Write refused by `ServerOptions.OnWrite` | The error it returned; server device failure (4) when that is not a Modbus exception |
 

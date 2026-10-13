@@ -41,6 +41,12 @@ type ServerOptions struct {
 	// UnitID is the only Modbus unit ID the device answers. Zero selects
 	// unit 1, as in DiscoverOptions.
 	UnitID uint8
+	// SilentToOtherUnits makes the device ignore requests for another unit
+	// ID, the way a device on a serial line does: the client gets no answer
+	// and runs into its timeout. By default such a request is answered with
+	// exception 0x0B (gateway target device failed to respond), which tells
+	// a client at once that the unit is not there. Added in v0.5.1.
+	SilentToOtherUnits bool
 	// BaseAddress is the register address of the "SunS" marker. The zero
 	// value is address 0, one of the standard SunSpec base addresses; most
 	// devices use 40000. A client only finds the device at an address it
@@ -104,8 +110,9 @@ type ServerWrite struct {
 // address outside the map is answered with exception 2 (illegal data
 // address), as is any request for the other register type. A request for
 // another unit ID is answered with exception 0x0B (gateway target device
-// failed to respond). Coils and discrete inputs do not exist: exception 1
-// (illegal function).
+// failed to respond), or not at all with ServerOptions.SilentToOtherUnits. A
+// request for unit ID 0, the Modbus broadcast address, is never answered and
+// never carried out. Coils and discrete inputs do not exist: exception 1 (illegal function).
 //
 // # Writes
 //
@@ -132,6 +139,7 @@ type ServerWrite struct {
 // length of a model.
 type Server struct {
 	unitID  uint8
+	silent  bool
 	base    uint16
 	regType modbus.RegType
 	onWrite func(ctx context.Context, w *ServerWrite) error
@@ -174,6 +182,7 @@ func NewServer(opts *ServerOptions, models ...ServerModel) (*Server, error) {
 		if opts.UnitID != 0 {
 			s.unitID = opts.UnitID
 		}
+		s.silent = opts.SilentToOtherUnits
 		s.base = opts.BaseAddress
 		s.regType = opts.RegType
 		s.onWrite = opts.OnWrite
@@ -458,8 +467,8 @@ func (s *Server) HandleHoldingRegisters(ctx context.Context, req *modbus.Holding
 	if req == nil {
 		return nil, modbus.ErrServerDeviceFailure
 	}
-	if req.UnitID != s.unitID {
-		return nil, modbus.ErrGWTargetFailedToRespond
+	if err := s.unit(req.UnitID); err != nil {
+		return nil, err
 	}
 	if s.regType != modbus.HoldingRegister {
 		return nil, modbus.ErrIllegalDataAddress
@@ -478,13 +487,27 @@ func (s *Server) HandleInputRegisters(_ context.Context, req *modbus.InputRegist
 	if req == nil {
 		return nil, modbus.ErrServerDeviceFailure
 	}
-	if req.UnitID != s.unitID {
-		return nil, modbus.ErrGWTargetFailedToRespond
+	if err := s.unit(req.UnitID); err != nil {
+		return nil, err
 	}
 	if s.regType != modbus.InputRegister {
 		return nil, modbus.ErrIllegalDataAddress
 	}
 	return s.read(req.Addr, req.Quantity)
+}
+
+// unit decides whether a request for unitID is this device's: nil when it
+// is, otherwise what go-modbus is to do with it.
+func (s *Server) unit(unitID uint8) error {
+	switch {
+	case unitID == s.unitID:
+		return nil
+	case unitID == 0 || s.silent:
+		// A broadcast is never answered; it is not carried out either.
+		return modbus.ErrNoResponse
+	default:
+		return modbus.ErrGWTargetFailedToRespond
+	}
 }
 
 // span returns the image indexes [lo, hi) of a register range, or ok false

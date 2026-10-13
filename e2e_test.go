@@ -15,6 +15,7 @@ package sunspec
 //	Discover / Open: chain, schemas, headers                TestE2EDiscoverLayout
 //	DiscoverOptions nil -> defaults                         TestE2EDiscoverLayout
 //	DiscoverOptions.UnitID (match, mismatch, zero)          TestE2EDiscoverOptionsUnitID
+//	Server silent to other units (ErrNoResponse)            TestE2EDiscoverOptionsUnitID
 //	DiscoverOptions.RegType (holding, input, mismatch)      TestE2EDiscoverOptionsRegType
 //	DiscoverOptions.BaseAddresses (custom, empty, miss)     TestE2EDiscoverOptionsBaseAddresses
 //	DiscoverOptions.MaxModels (cut chain + warning)         TestE2EDiscoverOptionsLimits
@@ -164,6 +165,21 @@ func TestE2EDiscoverOptionsUnitID(t *testing.T) {
 	dev.UnitID = 9
 	if _, err := dev.ReadAll(ctx); !errors.Is(err, modbus.ErrGWTargetFailedToRespond) {
 		t.Errorf("ReadAll with the wrong unit: %v", err)
+	}
+
+	// A device that stays silent to other units: the client times out, and
+	// the connection keeps working for the right unit.
+	quiet := newServed(t, 3, &ServerOptions{BaseAddress: 40000, UnitID: 5, SilentToOtherUnits: true}, 1)
+	addr, _ := startModbus(t, quiet.srv)
+	qc := dial(t, addr, 100*time.Millisecond)
+	if _, err := qc.ReadRegisters(context.Background(), 6, 40000, 2, modbus.HoldingRegister); !errors.Is(err, modbus.ErrRequestTimedOut) {
+		t.Errorf("silent device, other unit: err = %v, want a timeout", err)
+	}
+	if _, err := Detect(context.Background(), qc, &DiscoverOptions{UnitID: 6, BaseAddresses: []uint16{40000}}); err == nil || errors.Is(err, ErrNotSunSpec) {
+		t.Errorf("Detect on a silent unit: %v", err)
+	}
+	if dev, err := Discover(ctx, qc, &DiscoverOptions{UnitID: 5}); err != nil || len(dev.Discovery.Models) != 1 {
+		t.Errorf("silent device, own unit: %v", err)
 	}
 }
 

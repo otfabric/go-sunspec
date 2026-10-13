@@ -504,7 +504,7 @@ wire and misbehaving devices) and parallel stress tests. See
 ## Requirements
 
 - Go 1.23+
-- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.3.0+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.4.0+
 
 ## Contributing
 

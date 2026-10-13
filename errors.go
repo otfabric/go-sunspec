@@ -60,7 +60,7 @@ var (
 	// next header. It is the same value as modbus.ErrSunSpecModelChainInvalid.
 	//
 	// A model whose announced length runs beyond address 65535 is not
-	// reported with this error: go-modbus v1.3.0 returns
+	// reported with this error: go-modbus v1.4.0 returns
 	// modbus.ErrProtocolError for it, or the error of the read that hits the
 	// end of the address space. Discover fails in every one of these cases.
 	ErrModelChainInvalid = modbus.ErrSunSpecModelChainInvalid
