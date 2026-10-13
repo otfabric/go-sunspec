@@ -60,7 +60,7 @@ if errors.As(err, &dec) {
 | `ErrEncode` | Encode failure (via `*EncodeError`) |
 | `ErrValueOutOfRange` | A value does not fit its point: out of the type's range after scaling, equal to the type's "not implemented" value, a string longer than the point, more group instances than allowed. Always together with `ErrEncode` |
 | `ErrModelLayout` | `NewServer`: a model without data registers, model ID 65535, or a chain past address 65535. `Update`, `SetValues`, `SetPoint`, `SetRegisters`: the change would alter the length or group structure of a served model |
-| `ErrModelChainInvalid` | Re-export of `modbus.ErrSunSpecModelChainInvalid`: a zero-length model that is not the end marker, or a model ending exactly at address 65535. A model whose length runs beyond the address space fails discovery too, but with the go-modbus error for it (`modbus.ErrProtocolError` or the failing read's error in v1.4.0) |
+| `ErrModelChainInvalid` | Re-export of `modbus.ErrSunSpecModelChainInvalid`: a zero-length model that is not the end marker, or a model that does not fit in the address space (it runs beyond address 65535, or leaves no room for the header after it) |
 | `ErrModelChainLimitExceeded` | Re-export of `modbus.ErrSunSpecModelChainLimitExceeded` |
 
 `ErrUnknownModel` does **not** mean “no local schema”. Models without a compiled

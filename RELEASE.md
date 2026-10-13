@@ -7,7 +7,7 @@
 
 ## Summary
 
-A served device can stay silent: `ServerOptions.SilentToOtherUnits` makes a `Server` ignore requests for another unit ID instead of answering with an exception, and a broadcast (unit ID 0) is no longer answered at all. Both use `modbus.ErrNoResponse` of go-modbus v1.4.0, which v0.5.0 already required. Reading is unchanged.
+A served device can stay silent: `ServerOptions.SilentToOtherUnits` makes a `Server` ignore requests for another unit ID instead of answering with an exception, and a broadcast (unit ID 0) is no longer answered at all. The module moves to go-modbus v1.4.2, which makes one discovery error uniform (see Changed). Reading is otherwise unchanged.
 
 ## Changes
 
@@ -18,7 +18,9 @@ A served device can stay silent: `ServerOptions.SilentToOtherUnits` makes a `Ser
 ### Changed
 
 - **Broadcast requests are not answered** — a request for unit ID 0, the Modbus broadcast address, gets no response from a `Server` and is not carried out. v0.5.0 answered it with exception 0x0B like any other foreign unit ID.
-- **Documentation** — README, API.md and ERRORS.md name go-modbus v1.4.0 as the required version (the v0.5.0 module already required it; its documents still said v1.3.0), and describe the answers to foreign unit IDs and broadcasts.
+- **go-modbus** — requires `github.com/otfabric/go-modbus` v1.4.2 (v0.5.0 required v1.4.0, though its documents still said v1.3.0). `ServerOptions.SilentToOtherUnits` and the broadcast handling use `modbus.ErrNoResponse`, added in v1.4.0.
+- **`ErrModelChainInvalid` for every model that does not fit** — a device whose model runs beyond address 65535, or ends on register 65534 so that no header can follow it, now fails `Discover` with `ErrModelChainInvalid`. With go-modbus v1.4.0 these two cases surfaced as `modbus.ErrProtocolError` and as a parameter error of the failing read; only a model ending exactly on register 65535 gave `ErrModelChainInvalid`. Discovery failed in all three cases and still does (fixed in go-modbus v1.4.1).
+- **Documentation** — README, API.md and ERRORS.md describe the answers to foreign unit IDs and broadcasts.
 
 ### Unchanged
 

@@ -55,14 +55,10 @@ var (
 	ErrModelChanged = errors.New("sunspec: model changed since discovery")
 
 	// ErrModelChainInvalid indicates a malformed model chain: a model with
-	// length zero that is not the end marker, or a model that ends exactly
-	// at the last register of the address space, leaving no room for the
-	// next header. It is the same value as modbus.ErrSunSpecModelChainInvalid.
-	//
-	// A model whose announced length runs beyond address 65535 is not
-	// reported with this error: go-modbus v1.4.0 returns
-	// modbus.ErrProtocolError for it, or the error of the read that hits the
-	// end of the address space. Discover fails in every one of these cases.
+	// length zero that is not the end marker, or a model that does not fit in
+	// the address space: one that runs beyond address 65535, or that leaves
+	// no room for the header after it. It is the same value as
+	// modbus.ErrSunSpecModelChainInvalid.
 	ErrModelChainInvalid = modbus.ErrSunSpecModelChainInvalid
 
 	// ErrModelChainLimitExceeded indicates the model chain extends further
