@@ -20,27 +20,33 @@ const maxRegistersPerRead = 125
 // far are returned together with an error wrapping ErrPartialRead and the
 // Modbus error.
 func readRegisters(ctx context.Context, client *modbus.Client, unitID uint8, addr uint16, quantity uint16, regType modbus.RegType) ([]uint16, error) {
+	return readRange(ctx, client, unitID, addr, int(quantity), regType)
+}
+
+// readRange is readRegisters for a quantity of up to 65536 registers: a whole
+// model, header included, can be two registers longer than a uint16 counts.
+func readRange(ctx context.Context, client *modbus.Client, unitID uint8, addr uint16, quantity int, regType modbus.RegType) ([]uint16, error) {
 	if client == nil {
 		return nil, errNilClient
 	}
-	if uint32(addr)+uint32(quantity) > 0x10000 {
+	if quantity < 0 || int(addr)+quantity > 0x10000 {
 		return nil, fmt.Errorf("sunspec: register range %d+%d exceeds the 16-bit address space: %w",
 			addr, quantity, modbus.ErrUnexpectedParameters)
 	}
 	if quantity <= maxRegistersPerRead {
-		return client.ReadRegisters(ctx, unitID, addr, quantity, regType)
+		return client.ReadRegisters(ctx, unitID, addr, uint16(quantity), regType)
 	}
 
 	result := make([]uint16, 0, quantity)
 	remaining := quantity
-	offset := uint16(0)
+	offset := 0
 
 	for remaining > 0 {
 		chunk := remaining
 		if chunk > maxRegistersPerRead {
 			chunk = maxRegistersPerRead
 		}
-		regs, err := client.ReadRegisters(ctx, unitID, addr+offset, chunk, regType)
+		regs, err := client.ReadRegisters(ctx, unitID, uint16(int(addr)+offset), uint16(chunk), regType)
 		if err != nil {
 			return result, fmt.Errorf("%w: read at %d+%d: %w", ErrPartialRead, addr, offset, err)
 		}

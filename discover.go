@@ -16,7 +16,9 @@ import (
 // It walks the model chain from the detected base address up to the end
 // marker and attaches the registry schema to every model it knows. Models
 // without a schema are kept, named "unknown_<ID>", and noted in
-// Device.Discovery.Warnings; they can still be read as raw registers.
+// Device.Discovery.Warnings; they can still be read as raw registers. A chain
+// that is longer than opts.MaxModels is cut there without error; the missing
+// end marker is noted in Device.Discovery.Warnings too.
 //
 // Discover returns ErrNotSunSpec when no base address holds the marker, and
 // otherwise the Modbus or chain error (ErrModelChainInvalid,
@@ -78,6 +80,14 @@ func Discover(ctx context.Context, client *modbus.Client, opts *DiscoverOptions)
 				fmt.Sprintf("model %d: no local schema definition", hdr.ID))
 		}
 		result.Models = append(result.Models, inst)
+	}
+
+	// The walk stops without error when it has read MaxModels headers. A
+	// chain that did not reach its end marker by then is incomplete, or is
+	// not a model chain at all.
+	if n := len(raw.Models); n > 0 && !raw.Models[n-1].IsEndModel {
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("model chain not terminated: no end marker within the first %d models (MaxModels)", n))
 	}
 
 	return NewDevice(client, unitID, result), nil

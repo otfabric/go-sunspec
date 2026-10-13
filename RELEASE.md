@@ -1,5 +1,57 @@
 # go-sunspec Releases
 
+## v0.5.0
+
+**Date:** 2026-10-13
+**Previous release:** v0.4.2
+
+## Summary
+
+go-sunspec can now **serve** SunSpec devices, not only read them: build a device from models and point values and serve it over Modbus, as a simulator or as the SunSpec interface of your own equipment. The `sunspecctl` command-line tool moves to its own repository, [otfabric/sunspecctl](https://github.com/otfabric/sunspecctl); go-sunspec is now the library only. The existing API is unchanged in its signatures; reading a model now also verifies that the device still has it (see Changed). The test suite gained end-to-end, chaos and parallel stress layers, which found the defects listed under Fixed.
+
+## Changes
+
+### Added
+
+- **`EncodeModel(meta, values)`** — the inverse of `DecodeModel`: builds a model's registers from the registry schema and values given by point name, without I/O. Covers every point type the decoder handles, enum and bitfield values by symbol name, raw registers for any point, and nested and repeating groups with their count points. Points that are not set are encoded as the type's "not implemented" value.
+- **`Values`** — the values of a group instance (`Points`, `Groups`), with `Set`, `Add` and `Clone`. Points with a scale factor take the engineering value: it is divided by 10^sf and rounded to the nearest integer, halves away from zero. A value that does not fit its type after scaling is an error, never wrapped or clamped.
+- **`DecodedModel.Values()`** — turns a decoded model back into `Values`, so that a device that was read can be rebuilt.
+- **`Server`** (`NewServer`, `ServerOptions`, `ServerModel`) — a SunSpec device in memory: marker, model headers, data and end marker at a base address, for one unit ID, in holding or input registers. It is a go-modbus `RequestHandler` to pass to your own `modbus.NewServer`; `Server.Serve(ctx, conf)` runs one for the duration of a context. Reads may span models; unmapped addresses answer exception 2. Vendor and unknown models are served from raw registers.
+- **Live updates** — `Server.SetPoint`, `SetValues`, `Update` and `SetRegisters` change values while the device is being read, atomically per model; `Server.Model` returns a decoded snapshot.
+- **Client writes** — a `Server` accepts writes (FC 6, FC 16) to points whose schema access is `RW` and refuses everything else with exception 2. `ServerOptions.OnWrite` receives each write decoded (`ServerWrite`) before it takes effect and can refuse it.
+- **Errors** — `ErrEncode` with the typed `*EncodeError` (model, group path, point, type), `ErrValueOutOfRange`, `ErrModelLayout`, `ErrModelChanged`.
+- **End-to-end tests** (`e2e_test.go`) — the library's `Server` behind a real go-modbus TCP server, read through `Detect`, `Discover`, `ReadAll`, `ReadModel`, `ReadModelByID` and `ReadPoint`: every registry model with generated values, every `DiscoverOptions` field, scale-factor and nested-group cases, vendor models, request splitting, live updates, client writes and every documented error. The file starts with a feature-to-test matrix.
+- **Round-trip tests** — `EncodeModel` → `DecodeModel` for every model of the registry with generated values for every point type, including repeating groups.
+- **Chaos tests** (`chaos_test.go`, `chaos_proxy_test.go`) — a fault-injecting TCP proxy between client and served device (dropped, reset, truncated, stalled, split, duplicated, delayed and corrupted frames) and misbehaving devices (exceptions, a vanishing marker, a changing or endless chain, lying lengths, garbage registers). Asserted: no panic, no hang, no goroutine leak, and never a wrong value returned as valid.
+- **Parallel stress tests** (`stress_test.go`) — concurrent discovery and reads through one client, a pooled client and many clients while values are updated and clients write, and across server stop/start cycles; a read must never be torn or go back in time.
+- **`make soak`** — runs the chaos and stress tests for `SOAKTIME` each (default 2m); `SUNSPEC_CHAOS_SEED` replays a logged seed.
+
+### Changed
+
+- **`Device.ReadModel`, `ReadModelByID`, `ReadPoint`, `ReadAll` verify the model header** — a model's ID and length registers are now read together with its data and compared with the discovery result. A device whose model chain changed after `Discover` (firmware update, reconfiguration, another device behind the same address) is reported with the new `ErrModelChanged` instead of having its registers decoded with a stale layout. On the wire a model read now starts two registers earlier: a model of 124 or 125 data registers takes two requests instead of one, the chunks of longer models shift by two registers, and the position in an `ErrPartialRead` message is relative to the header address. A `Device` built by hand with `NewDevice` must describe models whose headers are on the device.
+- **Discovery warns about an unterminated chain** — a chain cut at `DiscoverOptions.MaxModels` (256 by default) without reaching the end marker adds "model chain not terminated" to `Device.Discovery.Warnings`. It was cut silently before.
+- **Package documentation** — `doc.go`, README, API.md, ERRORS.md and SECURITY.md describe serving.
+- **Release workflow** — publishes the library release only; the binary job is removed.
+- **README, CONTRIBUTING, SECURITY** — the CLI documentation and install instructions moved to the sunspecctl repository.
+
+### Fixed
+
+- **Stale layout decoded as valid data** — after a device changed its model chain, reads through an existing `Device` returned the registers at the old addresses decoded with the old schemas, without error. Found by the chaos tests (`TestChaosChainChanges`, `TestChaosLyingLengths`); fixed by the header verification above.
+- **Endless model chain looked complete** — a device whose chain never reaches an end marker was discovered as a device with exactly `MaxModels` models and no indication that the walk had been cut. Found by `TestChaosEndlessChain`; fixed by the warning above.
+
+### Removed
+
+- **`cmd/sunspecctl`** — the command is no longer part of this module. `go install github.com/otfabric/go-sunspec/cmd/sunspecctl@latest` stops at v0.4.2; use `go install github.com/otfabric/sunspecctl@latest`. The releases of the new repository are numbered from v0.1.0.
+- **`sunspecctl` release binaries** — releases of this repository no longer carry `sunspecctl-<version>-*` archives. Download them from the [sunspecctl releases](https://github.com/otfabric/sunspecctl/releases). The archives attached to v0.4.2 and earlier stay where they are.
+- **`github.com/spf13/cobra` dependency** — it was only used by the command. The module now depends on go-modbus alone.
+- **Makefile** — the `build-cli`, `build-all`, `release-all` and `install` targets are gone; `make build` regenerates the registry and builds the packages.
+
+### Unchanged
+
+- No existing function or type changed its signature, and the model definitions are those of v0.4.2. Import path remains `github.com/otfabric/go-sunspec`. `testutil` remains public and source compatible: sunspecctl's tests use it.
+
+---
+
 ## v0.4.2
 
 **Date:** 2026-10-11

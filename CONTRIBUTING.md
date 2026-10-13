@@ -36,7 +36,7 @@ make test
 # Coverage report for the library packages
 make coverage
 
-# Build the library and the sunspecctl CLI (./bin/sunspecctl)
+# Regenerate the registry and build all packages
 make build
 ```
 
@@ -80,24 +80,40 @@ and any relevant context.
 
 Examples:
 - `decode: flag unimplemented acc64 points`
-- `sunspecctl: add --count to poll-point`
+- `device: read a model by name`
 - `models: sync with sunspec/models`
 
 ### Testing
 
 - Add tests for new functionality in the appropriate `_test.go` file; the repository uses only the standard `testing` package
-- Use [`testutil`](testutil/) for anything that talks to a device: it serves a SunSpec model chain over Modbus TCP
+- Use the package's own `Server` (see `newServed` in `harness_test.go`) or [`testutil`](testutil/) for anything that talks to a device: both serve a SunSpec model chain over Modbus TCP
 - Assert behaviour: decoded values, scale factors, the specific error — not just that the code ran
 - Keep tests fast, deterministic and race-clean; CI runs them with `-race` on every Go version from 1.23 and a 120 s per-package timeout
 - Coverage is enforced by `make check` and Codecov; new code should come with tests
 - If your change affects what is read from a device, verify against real hardware when possible and say which device in the pull request
+
+### Test layers
+
+| Layer | Files | What it is for |
+|---|---|---|
+| Unit | `decode*_test.go`, `encode_test.go`, `server_test.go`, `device_test.go`, … | One function or type at a time, tables of inputs and expected registers, values and errors |
+| Round trip | `encode_roundtrip_test.go`, `gen_test.go` | `EncodeModel` → `DecodeModel` for every registry model. `gen_test.go` holds the value generator the layers below share: it fills any schema with valid random values and knows what they decode to |
+| End-to-end | `e2e_test.go`, `integration_test.go` | A served device read through the public client path over real TCP. `e2e_test.go` starts with a feature → test matrix: add a line when you add a feature, and a test when a line has none |
+| Chaos | `chaos_test.go`, `chaos_proxy_test.go` | Faults on the wire (a proxy that drops, delays, truncates, splits, duplicates and corrupts frames) and in the device (exceptions, changing chains, lying headers, garbage). They assert invariants, not timings: no panic, no hang, no goroutine leak, and no wrong value returned as valid |
+| Stress | `stress_test.go` | Many goroutines reading, updating and writing at once, and server restarts under load. They assert consistency: no torn model, no generation going back |
+
+`harness_test.go` has the helpers the last three share (a handler shim that swaps or distorts the device behind a running server, loopback servers, the `served` oracle).
+
+Chaos and stress tests are seeded. A failing run logs its seed; replay it with `SUNSPEC_CHAOS_SEED=<seed> go test -race -run <Test> .`. By default they run for a second or two each so that `make test` stays fast. `make soak` (`SOAKTIME=10m make soak`) runs them for longer through `SUNSPEC_CHAOS_DURATION` and `SUNSPEC_STRESS_DURATION`, and makes the scripted chaos scenarios sweep every frame instead of a sample. Before you call a change to these tests stable, run them repeatedly: `go test -race -count=20 -run 'Chaos|Stress' .`.
+
+When one of these tests fails, find out whether the library, go-modbus or the test is wrong before touching the assertion. A defect in the library gets a fix and a regression test; do not weaken an invariant to get a green run.
 
 ### Documentation
 
 When you change **public API or behaviour**, update:
 
 - Doc comments on the affected symbols
-- [API.md](API.md) and [ERRORS.md](ERRORS.md), and [README.md](README.md) where it references the changed behaviour or `sunspecctl` commands and flags
+- [API.md](API.md) and [ERRORS.md](ERRORS.md), and [README.md](README.md) where it references the changed behaviour
 - [RELEASE.md](RELEASE.md), calling out behaviour changes and anything that breaks existing callers
 
 ## Submitting Changes
@@ -115,21 +131,21 @@ For larger changes, please open an issue first to discuss the approach.
 ## Reporting Issues
 
 - Use GitHub Issues to report bugs or suggest features
-- Include the go-sunspec version (or `sunspecctl version` output), the Go version and the operating system
+- Include the go-sunspec version, the Go version and the operating system
 - Provide the exact command or a minimal program that reproduces the problem
-- For device problems, include the manufacturer and model, the transport (TCP, RTU, …) and the output of `sunspecctl detect` and `sunspecctl models`; `sunspecctl read --raw` shows the registers behind a wrongly decoded value
+- For device problems, include the manufacturer and model, the transport (TCP, RTU, …) and the output of `sunspecctl detect` and `sunspecctl models` ([sunspecctl](https://github.com/otfabric/sunspecctl) is the command-line tool built on this library); `sunspecctl read --raw` shows the registers behind a wrongly decoded value
+- Problems with the `sunspecctl` commands, flags or output belong in the [sunspecctl repository](https://github.com/otfabric/sunspecctl/issues)
 - Report security vulnerabilities privately: see [SECURITY.md](SECURITY.md)
 
 ## Project Structure
 
 ```
-.                      Package sunspec: detect, discover, read, decode
+.                      Package sunspec: detect, discover, read, decode; encode and serve
 registry/              Model metadata and lookups; models_gen.go is generated
 models/                SunSpec JSON models from sunspec/models (do not edit)
 internal/schema/       JSON model parsing
 internal/gen/          Code generator: models/ → registry/models_gen.go
 testutil/              SunSpec fixture server for tests
-cmd/sunspecctl/        Command-line tool
 sync-models.sh         Download the models from sunspec/models
 check-models.sh        Report upstream model changes (read-only)
 ```

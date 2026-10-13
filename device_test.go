@@ -287,7 +287,7 @@ func TestReadModelRejectsHeaderAtEndOfAddressSpace(t *testing.T) {
 	}
 
 	// The highest header address that still has a data register works.
-	h.Registers[0xFFFF] = 0x4444
+	h.Registers[0xFFFD], h.Registers[0xFFFE], h.Registers[0xFFFF] = 64000, 1, 0x4444
 	dm, err := d.ReadModel(testCtx(t), ModelInstance{Header: ModelHeader{ID: 64000, Length: 1, StartAddress: 0xFFFD}})
 	if err != nil {
 		t.Fatalf("model ending at 0xFFFF: %v", err)
@@ -325,8 +325,9 @@ func TestReadAllContinuesPastFailingModel(t *testing.T) {
 	if bad.ModelID != 64950 || bad.Name != "unknown_64950" || bad.InstanceAddress != 40070 {
 		t.Errorf("failed model identity = %+v", bad)
 	}
-	if !reflect.DeepEqual(bad.RawRegisters, seq(1, 125)) {
-		t.Errorf("failed model has %d registers, want the 125 of the first request", len(bad.RawRegisters))
+	// The first request carries the two header registers and 123 of data.
+	if !reflect.DeepEqual(bad.RawRegisters, seq(1, 123)) {
+		t.Errorf("failed model has %d registers, want the 123 data registers of the first request", len(bad.RawRegisters))
 	}
 	if len(bad.Warnings) != 1 || !strings.HasPrefix(bad.Warnings[0], "read error: ") {
 		t.Errorf("failed model warnings = %q", bad.Warnings)
@@ -643,8 +644,14 @@ func TestDiscoverMaxModels(t *testing.T) {
 	if len(dev.Discovery.Models) != 2 || dev.Discovery.Models[1].Header.ID != 65002 {
 		t.Errorf("models = %+v, want the first two", dev.Discovery.Models)
 	}
-	if len(dev.Discovery.Warnings) != 2 {
-		t.Errorf("Warnings = %q, want one per unknown model", dev.Discovery.Warnings)
+	// One per unknown model, and one for the chain that was cut short.
+	if w := dev.Discovery.Warnings; len(w) != 3 || !strings.Contains(w[2], "not terminated") {
+		t.Errorf("Warnings = %q, want one per unknown model and one for the missing end marker", w)
+	}
+	// A chain that ends within the limit carries no such warning.
+	dev, err = Discover(testCtx(t), client, &DiscoverOptions{BaseAddresses: []uint16{0}, MaxModels: 4})
+	if err != nil || len(dev.Discovery.Models) != 3 || len(dev.Discovery.Warnings) != 3 {
+		t.Errorf("complete chain: %v, %d models, warnings %q", err, len(dev.Discovery.Models), dev.Discovery.Warnings)
 	}
 }
 

@@ -26,14 +26,3 @@ jobs:
       release-name-prefix: go-sunspec
       update-major-tag: false
     secrets: inherit
-
-  release-sunspecctl-binary:
-    needs: release-package
-    uses: otfabric/.github/.github/workflows/go-binary-release.yml@v2
-    with:
-      bump: none
-      binary-name: sunspecctl
-      main-path: ./cmd/sunspecctl
-      ldflags: "-s -w -X main.version=${VERSION} -X main.tag=${TAG} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}"
-      run-tests: false
-    secrets: inherit

@@ -40,16 +40,25 @@ func (d *Device) ReadAll(ctx context.Context) ([]*DecodedModel, error) {
 
 // ReadModel reads and decodes a specific model instance.
 //
-// It reads inst.Header.Length registers starting two registers past
-// inst.Header.StartAddress, in as many Modbus requests as needed, and decodes
-// them with inst.Schema. An instance without a schema yields a DecodedModel
-// holding only RawRegisters and a warning, with a nil error.
+// It reads the model's two header registers at inst.Header.StartAddress and
+// the inst.Header.Length data registers that follow, in as many Modbus
+// requests as needed, and decodes them with inst.Schema. An instance without
+// a schema yields a DecodedModel holding only RawRegisters and a warning,
+// with a nil error.
+//
+// The header registers are compared with inst.Header. A device that no longer
+// reports that model ID and length at that address has changed its model
+// chain since discovery (a firmware update, a reconfiguration, a different
+// device behind the same address), and decoding its registers with the old
+// layout would yield values that look valid and are not: ReadModel then
+// returns an error matching ErrModelChanged. Discover again to continue.
 //
 // On failure ReadModel returns a non-nil DecodedModel next to the error: for
-// a read error it holds the registers read so far (ErrPartialRead when a
-// later chunk of a long model failed, otherwise the Modbus error as is); for
-// a device that reports fewer registers than the schema's fixed block needs
-// it holds the raw registers and the error is a *DecodeError.
+// a read error it holds the data registers read so far (ErrPartialRead when
+// a later chunk of a long model failed, otherwise the Modbus error as is);
+// for a changed model it holds the data registers that were read, undecoded;
+// for a device that reports fewer registers than the schema's fixed block
+// needs it holds the raw registers and the error is a *DecodeError.
 func (d *Device) ReadModel(ctx context.Context, inst ModelInstance) (*DecodedModel, error) {
 	// StartAddress points to the model header (ID register); data starts 2 registers later.
 	var (
@@ -60,7 +69,21 @@ func (d *Device) ReadModel(ctx context.Context, inst ModelInstance) (*DecodedMod
 		err = fmt.Errorf("sunspec: model %d at address %d has no data registers within the 16-bit address space: %w",
 			inst.Header.ID, inst.Header.StartAddress, modbus.ErrUnexpectedParameters)
 	} else {
-		regs, err = readRegisters(ctx, d.Client, d.UnitID, uint16(dataAddr), inst.Header.Length, d.RegType)
+		regs, err = readRange(ctx, d.Client, d.UnitID, inst.Header.StartAddress, int(inst.Header.Length)+2, d.RegType)
+	}
+	// A successful read holds exactly the registers asked for; a short one is
+	// treated like a header that does not match.
+	total := int(inst.Header.Length) + 2
+	if err == nil && (len(regs) != total || regs[0] != inst.Header.ID || regs[1] != inst.Header.Length) {
+		err = fmt.Errorf("%w: address %d does not hold model %d of length %d (header read: %v)",
+			ErrModelChanged, inst.Header.StartAddress, inst.Header.ID, inst.Header.Length, regs[:min(len(regs), 2)])
+	}
+	// What follows works on the data registers, as before the header was
+	// read along.
+	if len(regs) >= 2 {
+		regs = regs[2:]
+	} else {
+		regs = nil
 	}
 	if err != nil {
 		// Return partial result if we have some registers

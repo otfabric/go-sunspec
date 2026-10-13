@@ -1,4 +1,4 @@
-# go-sunspec — SunSpec Modbus Library and CLI for Go (Golang)
+# go-sunspec — SunSpec Modbus Library for Go (Golang)
 
 [![Go](https://img.shields.io/badge/Go-1.23%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/otfabric/go-sunspec.svg)](https://pkg.go.dev/github.com/otfabric/go-sunspec)
@@ -7,11 +7,11 @@
 [![Code Coverage](https://codecov.io/gh/otfabric/go-sunspec/graph/badge.svg)](https://codecov.io/gh/otfabric/go-sunspec)
 [![Release](https://img.shields.io/github/v/release/otfabric/go-sunspec?label=release)](https://github.com/otfabric/go-sunspec/releases)
 
-**go-sunspec is a Go library and command-line tool for reading SunSpec devices over Modbus.** It discovers the SunSpec models a solar inverter, energy meter, battery or other DER device exposes, reads them over Modbus TCP, RTU or ASCII, and decodes every point into typed, scaled values with units — using the official [SunSpec Alliance](https://sunspec.org/) model definitions compiled into the binary.
+**go-sunspec is a Go library for reading and serving SunSpec devices over Modbus.** It discovers the SunSpec models a solar inverter, energy meter, battery or other DER device exposes, reads them over Modbus TCP, RTU or ASCII, and decodes every point into typed, scaled values with units — using the official [SunSpec Alliance](https://sunspec.org/) model definitions compiled into your program. The same definitions work the other way: build a device from models and point values and [serve it](#serving-a-device) over Modbus TCP, as a simulator or as the SunSpec interface of your own equipment.
 
-Use it to build solar monitoring, energy-management (EMS), data-logging and DER-integration software in Go, or use the bundled `sunspecctl` CLI to inspect a device from the terminal. It is pure Go with no CGO, built on [otfabric/go-modbus](https://github.com/otfabric/go-modbus).
+Use it to build solar monitoring, energy-management (EMS), data-logging, DER-integration and device-simulation software in Go, or use [`sunspecctl`](https://github.com/otfabric/sunspecctl), the command-line tool built on it, to inspect or simulate a device from the terminal. It is pure Go with no CGO, built on [otfabric/go-modbus](https://github.com/otfabric/go-modbus).
 
-**Quick links:** [Quick start](#quick-start) · [Install](#install) · [Supported models](#supported-sunspec-models) · [Library API](#api) · [`sunspecctl` CLI](#cli--sunspecctl) · [FAQ](#faq) · [API reference](API.md)
+**Quick links:** [Quick start](#quick-start) · [Install](#install) · [Supported models](#supported-sunspec-models) · [Library API](#api) · [Serving a device](#serving-a-device) · [`sunspecctl` CLI](#command-line-tool) · [FAQ](#faq) · [API reference](API.md)
 
 ---
 
@@ -25,8 +25,9 @@ Use it to build solar monitoring, energy-management (EMS), data-logging and DER-
 - **Enums and bitfields by name** — Operating states, events and alarms are returned with their symbol names.
 - **Unknown and vendor models survive** — A model without a local schema is still discovered and returned with its raw registers.
 - **Every Modbus transport** — Modbus TCP, serial RTU and ASCII (RS-485), TLS, UDP and serial-to-Ethernet bridges, with retries, timeouts, logging and metrics configured on the go-modbus client.
-- **Offline decoding** — `DecodeModel` decodes a register slice with no I/O: useful for captures, simulators and tests.
-- **A CLI included** — `sunspecctl` detects, lists, reads and polls SunSpec devices, with table or JSON output.
+- **Offline decoding and encoding** — `DecodeModel` decodes a register slice with no I/O, and `EncodeModel` builds one from point values: useful for captures, simulators and tests.
+- **Serve a device** — `Server` lays out a model chain from values given by point name, serves it through go-modbus, accepts client writes to writable points and lets you change values while it runs.
+- **A CLI built on it** — [`sunspecctl`](https://github.com/otfabric/sunspecctl) detects, lists, reads and polls SunSpec devices, with table or JSON output, and serves simulated devices from a file.
 
 ---
 
@@ -63,23 +64,15 @@ for _, p := range inverter.Group.Points {
 
 A complete program is in [Example](#example).
 
-### Use the CLI
+### From the command line
+
+[`sunspecctl`](https://github.com/otfabric/sunspecctl) is the command-line tool built on this library, with pre-built binaries for Linux, macOS and Windows:
 
 ```bash
-# Is this a SunSpec device, and at which base address?
-sunspecctl detect --url tcp://192.168.1.100:502
-
-# Which SunSpec models does it implement?
-sunspecctl models --url tcp://192.168.1.100:502
-
-# Read and decode everything
-sunspecctl read --url tcp://192.168.1.100:502
-
-# Read AC power from the inverter model every 5 seconds, as JSON
-sunspecctl poll-point --model 103 --point W --interval 5s --json --url tcp://192.168.1.100:502
+sunspecctl detect --url tcp://192.168.1.100:502    # is this a SunSpec device?
+sunspecctl models --url tcp://192.168.1.100:502    # which models does it implement?
+sunspecctl read   --url tcp://192.168.1.100:502    # read and decode everything
 ```
-
-[Install `sunspecctl`](#sunspecctl-cli) on Linux, macOS or Windows, then see [CLI — `sunspecctl`](#cli--sunspecctl) for all commands.
 
 ---
 
@@ -89,8 +82,9 @@ sunspecctl poll-point --model 103 --point W --interval 5s --json --url tcp://192
 - **Energy metering** — Read SunSpec meters (models 201–204 and 211–214) for import/export energy and per-phase power.
 - **Battery and storage systems** — Read state of charge, capacity and status from storage models (124, 713, 801–809).
 - **Energy management systems (EMS) and DER integration** — Feed SunSpec data into controllers, dashboards, MQTT, Prometheus or time-series databases from Go services.
-- **Commissioning and troubleshooting** — Check what a device really exposes with `sunspecctl` before writing integration code.
-- **Testing and simulation** — Decode captured registers offline, or run the bundled fixture server in unit tests.
+- **Commissioning and troubleshooting** — Check what a device really exposes with [`sunspecctl`](https://github.com/otfabric/sunspecctl) before writing integration code.
+- **Testing and simulation** — Serve a simulated inverter, meter or battery to develop and test an EMS or a SCADA integration without hardware; decode captured registers offline.
+- **SunSpec interface for your own device** — Expose measurements and settings of a Go-controlled device as standard SunSpec models.
 
 ---
 
@@ -130,8 +124,6 @@ registry.Count()         // 112
 - [Use cases](#use-cases)
 - [Supported SunSpec models](#supported-sunspec-models)
 - [Install](#install)
-  - [Library](#library)
-  - [`sunspecctl` CLI](#sunspecctl-cli) (Linux, macOS, Windows)
 - [Example](#example)
 - [API](#api)
   - [Discovery](#discovery)
@@ -142,7 +134,8 @@ registry.Count()         // 112
   - [Ownership and concurrency](#ownership-and-concurrency)
   - [Observability](#observability)
   - [Errors](#errors)
-- [CLI — `sunspecctl`](#cli--sunspecctl)
+- [Serving a device](#serving-a-device)
+- [Command-line tool](#command-line-tool)
 - [FAQ](#faq)
 - [Project Structure](#project-structure)
 - [Updating Models](#updating-models)
@@ -155,151 +148,13 @@ Full API and error contracts: [API.md](API.md), [ERRORS.md](ERRORS.md).
 
 ## Install
 
-go-sunspec is two things: a Go library you import, and the `sunspecctl` command-line tool. Install whichever you need.
-
-### Library
-
 ```bash
 go get github.com/otfabric/go-sunspec
 ```
 
 Requires Go 1.23 or later.
 
-### `sunspecctl` CLI
-
-The easiest way to install `sunspecctl` is to download a pre-built binary from the [GitHub Releases page](https://github.com/otfabric/go-sunspec/releases). No Go toolchain is required.
-
-| Platform | CPU | Download |
-|---|---|---|
-| Linux | x86-64 | `sunspecctl-<version>-linux-amd64.tar.gz` |
-| Linux | 64-bit ARM (Raspberry Pi 4/5 with a 64-bit OS, AWS Graviton) | `sunspecctl-<version>-linux-arm64.tar.gz` |
-| Linux | 32-bit ARM (Raspberry Pi with a 32-bit OS) | `sunspecctl-<version>-linux-armv7.tar.gz` |
-| macOS | Apple Silicon (M1 and later) | `sunspecctl-<version>-darwin-arm64.tar.gz` |
-| macOS | Intel | `sunspecctl-<version>-darwin-amd64.tar.gz` |
-| Windows | x86-64 | `sunspecctl-<version>-windows-amd64.zip` |
-| Windows | ARM64 | `sunspecctl-<version>-windows-arm64.zip` |
-
-Each release also contains `sunspecctl-<version>-checksums.txt` (SHA-256) so you can verify your download. The commands below fetch the **latest** release, verify its checksum and install it. Afterwards, check that it works:
-
-```console
-sunspecctl version
-```
-
-#### Linux
-
-```bash
-# 1. Find the latest version and your CPU architecture
-VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/otfabric/go-sunspec/releases/latest | sed 's|.*/v||')
-case "$(uname -m)" in
-  x86_64)         ARCH=amd64 ;;
-  aarch64|arm64)  ARCH=arm64 ;;
-  armv7l)         ARCH=armv7 ;;
-  *) echo "Unsupported architecture: $(uname -m)" ;;
-esac
-
-# 2. Download the archive and the checksum file
-FILE="sunspecctl-${VERSION}-linux-${ARCH}.tar.gz"
-BASE="https://github.com/otfabric/go-sunspec/releases/download/v${VERSION}"
-curl -fsSLO "${BASE}/${FILE}"
-curl -fsSLO "${BASE}/sunspecctl-${VERSION}-checksums.txt"
-
-# 3. Verify the download (should print "OK")
-grep "${FILE}" "sunspecctl-${VERSION}-checksums.txt" | sha256sum -c -
-
-# 4. Extract and install (the binary in the archive carries the version and platform in its name)
-mkdir -p sunspecctl-dl && tar -xzf "${FILE}" -C sunspecctl-dl
-sudo install -m 0755 "$(find sunspecctl-dl -type f -name 'sunspecctl*' | head -n1)" /usr/local/bin/sunspecctl
-```
-
-No `sudo`? Install into your home directory instead (and make sure `~/.local/bin` is in your `PATH`):
-
-```bash
-mkdir -p ~/.local/bin
-install -m 0755 "$(find sunspecctl-dl -type f -name 'sunspecctl*' | head -n1)" ~/.local/bin/sunspecctl
-```
-
-To talk to a device on a serial port (RS-485 adapter) without `sudo`, your user needs access to the port, usually through the `dialout` group: `sudo usermod -aG dialout "$USER"`, then log out and back in.
-
-#### macOS
-
-```bash
-# 1. Find the latest version and your CPU architecture (arm64 = Apple Silicon, x86_64 = Intel)
-VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/otfabric/go-sunspec/releases/latest | sed 's|.*/v||')
-case "$(uname -m)" in
-  arm64)   ARCH=arm64 ;;
-  x86_64)  ARCH=amd64 ;;
-esac
-
-# 2. Download the archive and the checksum file
-FILE="sunspecctl-${VERSION}-darwin-${ARCH}.tar.gz"
-BASE="https://github.com/otfabric/go-sunspec/releases/download/v${VERSION}"
-curl -fsSLO "${BASE}/${FILE}"
-curl -fsSLO "${BASE}/sunspecctl-${VERSION}-checksums.txt"
-
-# 3. Verify the download (should print "OK")
-grep "${FILE}" "sunspecctl-${VERSION}-checksums.txt" | shasum -a 256 -c -
-
-# 4. Extract and install (the binary in the archive carries the version and platform in its name)
-mkdir -p sunspecctl-dl && tar -xzf "${FILE}" -C sunspecctl-dl
-sudo install -m 0755 "$(find sunspecctl-dl -type f -name 'sunspecctl*' | head -n1)" /usr/local/bin/sunspecctl
-```
-
-If you downloaded the archive with a web browser instead of `curl` and macOS refuses to run the binary ("cannot be verified"), remove the quarantine flag: `xattr -d com.apple.quarantine /usr/local/bin/sunspecctl`.
-
-#### Windows (PowerShell)
-
-```powershell
-# 1. Find the latest version and your CPU architecture
-$version = (Invoke-RestMethod https://api.github.com/repos/otfabric/go-sunspec/releases/latest).tag_name.TrimStart('v')
-$arch    = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
-
-# 2. Download the archive and the checksum file
-$file = "sunspecctl-$version-windows-$arch.zip"
-$base = "https://github.com/otfabric/go-sunspec/releases/download/v$version"
-Invoke-WebRequest "$base/$file" -OutFile "$env:TEMP\$file"
-Invoke-WebRequest "$base/sunspecctl-$version-checksums.txt" -OutFile "$env:TEMP\sunspecctl-checksums.txt"
-
-# 3. Verify the download (throws an error on mismatch)
-$expected = ((Select-String -Path "$env:TEMP\sunspecctl-checksums.txt" -Pattern $file).Line -split '\s+')[0]
-$actual   = (Get-FileHash "$env:TEMP\$file" -Algorithm SHA256).Hash
-if ($expected -ne $actual) { throw "Checksum mismatch for $file" }
-
-# 4. Extract to a per-user folder and name the program sunspecctl.exe
-#    (the .exe in the archive carries the version and platform in its name)
-$dir = "$env:LOCALAPPDATA\Programs\sunspecctl"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Expand-Archive "$env:TEMP\$file" -DestinationPath "$env:TEMP\sunspecctl-dl" -Force
-$exe = Get-ChildItem "$env:TEMP\sunspecctl-dl" -Recurse -Filter 'sunspecctl*.exe' | Select-Object -First 1
-Copy-Item $exe.FullName "$dir\sunspecctl.exe" -Force
-
-# 5. Add sunspecctl to your user PATH (then open a new terminal)
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if ($userPath -notlike "*$dir*") {
-  [Environment]::SetEnvironmentVariable('Path', "$userPath;$dir", 'User')
-}
-```
-
-If Windows SmartScreen warns about an unrecognised app, choose **More info → Run anyway**.
-
-#### Manual download
-
-1. Open the [latest release](https://github.com/otfabric/go-sunspec/releases/latest).
-2. Download the archive for your platform from the table above.
-3. Extract it, rename the binary to `sunspecctl` (`sunspecctl.exe` on Windows) and move it to a folder on your `PATH`.
-
-#### Update
-
-Run the same commands again. They always fetch the latest release and overwrite the previous binary.
-
-#### With Go
-
-If you have Go 1.23 or later, you can build and install the latest release straight from source:
-
-```bash
-go install github.com/otfabric/go-sunspec/cmd/sunspecctl@latest
-```
-
-To build from a checkout, see [Building](#building).
+Looking for the `sunspecctl` command-line tool? It has its own repository, with install instructions for Linux, macOS and Windows: [otfabric/sunspecctl](https://github.com/otfabric/sunspecctl#install).
 
 ## Example
 
@@ -387,6 +242,8 @@ inst := device.ModelByID(101)
 point, err := device.ReadPoint(ctx, *inst, "W")
 fmt.Printf("Power: %g W\n", *point.ScaledValue)
 ```
+
+Each read of a model includes its ID and length registers and checks them against the discovery result: a device whose model chain changed since `Discover` is reported with `ErrModelChanged` instead of being decoded with a stale layout.
 
 ### Decoded values
 
@@ -479,124 +336,57 @@ client, err := modbus.New(modbus.Config{
 
 ### Errors
 
-Use `errors.Is` / `errors.As` with package sentinels (`ErrNotSunSpec`, `ErrUnknownModel`, `ErrPointNotFound`, `ErrDecode`, `ErrPartialRead`) and `*DecodeError`. Details: [ERRORS.md](ERRORS.md).
+Use `errors.Is` / `errors.As` with package sentinels (`ErrNotSunSpec`, `ErrUnknownModel`, `ErrPointNotFound`, `ErrDecode`, `ErrPartialRead`, `ErrModelChanged`, and on the serving side `ErrEncode`, `ErrValueOutOfRange`, `ErrModelLayout`) and `*DecodeError` / `*EncodeError`. Details: [ERRORS.md](ERRORS.md).
 
-## CLI — `sunspecctl`
+## Serving a device
 
-A command-line tool for inspecting SunSpec devices over Modbus.
+A `Server` is a SunSpec device held in memory: the `SunS` marker, each model with its ID and length registers and its data, and the end marker. You give the models as point values by SunSpec name; the library encodes them with the registry's schemas.
 
-```
-sunspecctl
-├── detect       Detect SunSpec device presence
-├── models       List discovered SunSpec models
-├── read         Read and decode all models
-├── read-model   Read and decode a specific model by ID
-├── read-point   Read a single named point from a model
-├── poll         Repeatedly read and decode all models
-├── poll-model   Repeatedly read and decode a specific model by ID
-├── poll-point   Repeatedly read a single named point from a model
-├── completion   Generate shell completion script (bash/zsh/fish/powershell)
-└── version      Print the sunspecctl version
-```
+```go
+srv, err := sunspec.NewServer(&sunspec.ServerOptions{BaseAddress: 40000, UnitID: 1},
+    sunspec.ServerModel{ID: 1, Values: (&sunspec.Values{}).
+        Set("Mn", "Acme").Set("Md", "PV-5000").Set("SN", "A-0001")},
+    sunspec.ServerModel{ID: 103, Values: (&sunspec.Values{}).
+        Set("W", 4200).Set("W_SF", 0).        // 4200 W
+        Set("PhVphA", 230.4).Set("V_SF", -1). // stored as 2304
+        Set("St", "MPPT")},                   // enum by symbol name
+    sunspec.ServerModel{ID: 64900, Registers: []uint16{1, 2, 3}}, // vendor model, raw
+)
+if err != nil {
+    return err
+}
 
-### Installing
+// A Server is a go-modbus RequestHandler: the Modbus server stays yours.
+ms, err := modbus.NewServer(&modbus.ServerConfig{URL: "tcp://0.0.0.0:1502"}, srv)
+if err != nil {
+    return err
+}
+if err := ms.Start(); err != nil {
+    return err
+}
+defer ms.Stop()
 
-See [Install → `sunspecctl` CLI](#sunspecctl-cli) for copy-paste commands for Linux, macOS and Windows.
-
-### Building
-
-```bash
-# Build via Makefile (includes code generation + checks)
-make build
-
-# Or build CLI only (quick, no checks)
-make build-cli
-
-# Or build directly with go
-go build -o bin/sunspecctl ./cmd/sunspecctl
-
-# Cross-compile for all platforms (Linux amd64/arm64/armv7, macOS amd64/arm64, Windows amd64/arm64)
-make build-all
-
-# Install to /usr/local/bin
-make install
+// Change values while it is being read.
+err = srv.SetPoint(1, "W", 4350) // model at index 1 of the chain
 ```
 
-### Global Flags
+`srv.Serve(ctx, &modbus.ServerConfig{...})` does the `NewServer` / `Start` / wait / `Shutdown` sequence in one call when you do not need the Modbus server yourself.
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--url` | `tcp://localhost:502` | Modbus device URL |
-| `--unit-id` | `1` | Modbus unit ID |
-| `--timeout` | `10s` | Operation timeout |
-| `--json` | `false` | Output as JSON |
-| `--raw` | `false` | Include raw register hex in output |
-| `--baud` | `0` (19200) | Serial baud rate, for `rtu://` and `ascii://` URLs |
-| `--data-bits` | `0` (8 for RTU, 7 for ASCII) | Serial data bits, 5–8 |
-| `--parity` | `none` | Serial parity: `none`, `even` or `odd` |
-| `--stop-bits` | `0` (2 without parity, 1 with) | Serial stop bits, 1 or 2 |
+- **Values** — A point takes its engineering value; the encoder divides by 10^scale factor and rounds to the nearest integer, halves away from zero. The scale factor is the value you give for the `sunssf` point. A point you do not set is served as "not implemented". A value that does not fit its type after scaling is an error (`ErrValueOutOfRange`), never wrapped or clamped.
+- **Groups** — `Values.Add("module", ...)` adds an instance of a repeating group; count points such as `NPt` are filled in from the number of instances. Nested groups nest.
+- **Updates** — `SetPoint`, `SetValues`, `Update` (several points, nested ones, in one atomic step) and `SetRegisters` are safe while the device is served. A read of a model in a single Modbus request never sees half an update. The layout is fixed: an update cannot change a model's length.
+- **Client writes** — Clients can write (FC 6 and 16) points whose SunSpec access is `RW`. Read-only points, headers, the marker, count points, parts of a point and unmapped addresses are refused with exception 2. `ServerOptions.OnWrite` sees every write, decoded, before it takes effect and can refuse it.
+- **Without I/O** — `EncodeModel(schema, values)` returns the registers of one model, and `DecodedModel.Values()` turns a decoded model back into values: `EncodeModel` and `DecodeModel` are each other's inverse.
 
-`--url` selects the transport: `tcp://host:port`, `rtu://<device>` (for example `rtu:///dev/ttyUSB0` or `rtu://COM3`), `ascii://<device>`, `udp://host:port`, `rtuovertcp://host:port` for a serial-to-Ethernet gateway, and the other [go-modbus URL schemes](https://github.com/otfabric/go-modbus#transport-modes). The serial flags are ignored for network URLs.
+Full contract: [API.md](API.md#serving). There is no authentication in Modbus: see [SECURITY.md](SECURITY.md) before you listen on a network.
 
-Many SunSpec devices on RS-485 use 9600 baud, 8 data bits, no parity and 1 stop bit, which is not the default: pass `--baud 9600 --stop-bits 1` (and the device's Modbus address as `--unit-id`).
+## Command-line tool
 
-### Commands
+`sunspecctl`, the command-line tool for inspecting SunSpec devices, is built on this library and lives in its own repository: **[otfabric/sunspecctl](https://github.com/otfabric/sunspecctl)**. It detects SunSpec devices, lists their models, and reads or polls models and single points as text or JSON, over the same transports as the library.
 
-```bash
-# Detect SunSpec presence
-sunspecctl detect --url tcp://192.168.1.100:502
+It also serves simulated devices from a file (`sunspecctl serve`), using the [`Server`](#serving-a-device) of this library.
 
-# List discovered models
-sunspecctl models --url tcp://192.168.1.100:502
-
-# Read and decode all models
-sunspecctl read --url tcp://192.168.1.100:502
-
-# Read a specific model by ID
-sunspecctl read-model --id 101 --url tcp://192.168.1.100:502
-
-# Read a single point from a model
-sunspecctl read-point --model 101 --point W --url tcp://192.168.1.100:502
-
-# SunSpec over Modbus RTU (RS-485) at 9600 8N1, device address 3
-sunspecctl models --url rtu:///dev/ttyUSB0 --baud 9600 --stop-bits 1 --unit-id 3
-
-# A serial device behind an RS-485-to-Ethernet gateway
-sunspecctl read --url rtuovertcp://192.168.1.50:4001 --unit-id 3
-```
-
-### Polling
-
-The `poll`, `poll-model`, and `poll-point` commands work like their `read` counterparts but repeat at a configurable interval.
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--interval` | `30s` | Interval between polls (supports `s`, `m`, `h`) |
-| `--count` | `0` | Number of polls (`0` = infinite, stop with Ctrl-C) |
-
-```bash
-# Poll all models every 10 seconds
-sunspecctl poll --interval 10s --url tcp://192.168.1.100:502
-
-# Poll model 101 five times, once per minute
-sunspecctl poll-model --id 101 --interval 1m --count 5 --url tcp://192.168.1.100:502
-
-# Poll a single point every 5 seconds as JSON (great for piping)
-sunspecctl poll-point --model 101 --point W --interval 5s --json --url tcp://192.168.1.100:502
-```
-
-### Output Formats
-
-```bash
-# Default: human-readable table
-sunspecctl models --url tcp://192.168.1.100:502
-
-# JSON output (structured, suitable for piping to jq)
-sunspecctl models --url tcp://192.168.1.100:502 --json
-
-# Include raw register hex alongside decoded values
-sunspecctl read --url tcp://192.168.1.100:502 --raw
-```
+Up to go-sunspec v0.4.2 it was part of this repository (`cmd/sunspecctl`) and its binaries were attached to the go-sunspec releases. From v0.5.0 on, releases of this repository are the library only; `sunspecctl` binaries and `go install github.com/otfabric/sunspecctl@latest` come from the new repository. Its version numbering starts again at v0.1.0 there.
 
 ## FAQ
 
@@ -626,7 +416,15 @@ They are still discovered and listed. `ReadModel` returns them with raw register
 
 ### Can go-sunspec write SunSpec points (controls)?
 
-Not through this package: it reads and decodes. You can write registers with the same go-modbus client (`client.WriteRegisters`) using the address and offset from the discovered model and its schema.
+Not as a client: `Device` reads and decodes. You can write registers with the same go-modbus client (`client.WriteRegisters`) using the address and offset from the discovered model and its schema; `EncodeModel` gives you the registers for values by point name. On the serving side it is the other way round: a [`Server`](#serving-a-device) accepts writes from clients to the points SunSpec defines as writable.
+
+### Can I simulate a SunSpec device?
+
+Yes. Build a [`Server`](#serving-a-device) from models and point values and serve it with go-modbus, or without writing code run `sunspecctl serve` with a device file; `sunspecctl capture` writes such a file from a real device.
+
+### My device changed its models while my program was running. What happens?
+
+Every read of a model also reads its ID and length registers and compares them with what discovery found. If they differ, the read fails with `ErrModelChanged` instead of decoding the registers with a layout that no longer applies. Call `Discover` again.
 
 ### How do scale factors work?
 
@@ -640,7 +438,6 @@ They are generated from the official [sunspec/models](https://github.com/sunspec
 
 ```
 go-sunspec/
-├── cmd/sunspecctl/     CLI tool
 ├── internal/
 │   ├── gen/           Code generator (JSON → Go)
 │   └── schema/        JSON model parsing types
@@ -660,7 +457,10 @@ go-sunspec/
 ├── decode_point.go    Per-type point decoders
 ├── decode_sf.go       Scale factor resolution
 ├── device.go          ReadAll, ReadModel, ReadModelByID, ReadPoint
-└── read.go            Batch register reader (>125 splitting)
+├── read.go            Batch register reader (>125 splitting)
+├── encode.go          Values, EncodeModel(), DecodedModel.Values()
+├── encode_point.go    Per-type point encoders
+└── server.go          Server: a served device (go-modbus RequestHandler)
 ```
 
 ## Updating Models
@@ -692,10 +492,14 @@ and closes itself once `models/` is back in sync.
 make check         # format, vet, lint, vulnerability scan, race tests, coverage gate
 make test          # tests with the race detector
 make coverage      # coverage report for the library packages
+make soak          # chaos and stress tests for SOAKTIME each (default 2m)
 ```
 
-Tests need no hardware: [`testutil`](testutil/) provides a SunSpec fixture
-server. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Tests need no hardware: the library's own `Server` and the [`testutil`](testutil/)
+fixture stand in for devices. Next to the unit tests there are end-to-end tests
+(served device against the client path over TCP), chaos tests (faults on the
+wire and misbehaving devices) and parallel stress tests. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Requirements
 
