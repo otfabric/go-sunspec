@@ -41,7 +41,7 @@ SunSpec devices are read and served over Modbus, which carries no authentication
 
 ### Reading Devices
 
-As a client this package reads and decodes; it does not write SunSpec control points. If you write registers yourself with the go-modbus client, remember that DER controls change the behaviour of physical equipment connected to the grid.
+As a client this package reads and decodes; it does not write SunSpec control points. It sends Modbus function codes 03 and 04 only. To make that a property of the connection, create the client with `modbus.Config.AllowedFunctionCodes: sunspec.ReadFunctionCodes()`: it then refuses every other function code before anything is sent. If you write registers yourself with the go-modbus client, remember that DER controls change the behaviour of physical equipment connected to the grid.
 
 ### Serving Devices
 

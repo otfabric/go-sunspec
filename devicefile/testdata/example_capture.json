@@ -1,0 +1,83 @@
+{
+  "unit_id": 3,
+  "base_address": 40000,
+  "models": [
+    {
+      "id": 1,
+      "name": "Common",
+      "points": {
+        "Mn": "Acme",
+        "Md": "PV-5000",
+        "SN": "A-1",
+        "DA": 3
+      }
+    },
+    {
+      "id": 103,
+      "name": "Inverter (Three Phase)",
+      "points": {
+        "A": 12.34,
+        "A_SF": -2,
+        "PhVphA": 230.1,
+        "V_SF": -1,
+        "W": 5000,
+        "W_SF": 1,
+        "WH": 123456789,
+        "WH_SF": 0,
+        "TmpCab": -50,
+        "Tmp_SF": -1,
+        "St": 4,
+        "Evt1": 129
+      }
+    },
+    {
+      "id": 160,
+      "name": "Multiple MPPT Inverter Extension Model",
+      "points": {
+        "DCA_SF": -1,
+        "DCV_SF": 0,
+        "DCW_SF": 0,
+        "N": 2
+      },
+      "groups": {
+        "module": [
+          {
+            "points": {
+              "ID": 1,
+              "IDStr": "east",
+              "DCA": 8.5,
+              "DCV": 300,
+              "DCW": 2550
+            }
+          },
+          {
+            "points": {
+              "ID": 2,
+              "IDStr": "west",
+              "DCA": 7.5,
+              "DCV": 310
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 123,
+      "name": "Immediate Controls",
+      "points": {
+        "Conn": 1,
+        "WMaxLimPct": 100,
+        "WMaxLimPct_SF": -1
+      }
+    },
+    {
+      "id": 64900,
+      "name": "unknown_64900",
+      "registers": [
+        1,
+        2,
+        65535
+      ]
+    }
+  ]
+}

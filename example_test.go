@@ -4,6 +4,7 @@ package sunspec_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/otfabric/go-modbus"
@@ -109,4 +110,26 @@ func ExampleServer() {
 	// 103 40070 50
 	// 64900 40122 3
 	// [5375 6E53 0001 0042] <nil>
+}
+
+func ExampleReadFunctionCodes() {
+	// A client that can read a SunSpec device and cannot write to it: any
+	// function code but 0x03 and 0x04 is refused before it is sent.
+	client, err := modbus.New(modbus.Config{
+		URL:                  "tcp://192.168.1.100:502",
+		AllowedFunctionCodes: sunspec.ReadFunctionCodes(),
+	})
+	if err != nil {
+		panic(err)
+	}
+	// Nothing is sent here: the client is not even open.
+	err = client.WriteRegister(context.Background(), 1, 40100, 1)
+	fmt.Println(errors.Is(err, modbus.ErrFunctionCodeNotAllowed))
+	for _, fc := range sunspec.ReadFunctionCodes() {
+		fmt.Println(fc.String())
+	}
+	// Output:
+	// true
+	// Read Holding Registers (0x03)
+	// Read Input Registers (0x04)
 }

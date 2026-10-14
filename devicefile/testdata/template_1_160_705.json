@@ -1,0 +1,93 @@
+{
+  "unit_id": 1,
+  "base_address": 40000,
+  "models": [
+    {
+      "id": 1,
+      "name": "Common",
+      "points": {
+        "Mn": null,
+        "Md": null,
+        "Opt": null,
+        "Vr": null,
+        "SN": null,
+        "DA": null
+      }
+    },
+    {
+      "id": 160,
+      "name": "Multiple MPPT Inverter Extension Model",
+      "points": {
+        "DCA_SF": null,
+        "DCV_SF": null,
+        "DCW_SF": null,
+        "DCWH_SF": null,
+        "Evt": null,
+        "N": null,
+        "TmsPer": null
+      },
+      "groups": {
+        "module": [
+          {
+            "points": {
+              "ID": null,
+              "IDStr": null,
+              "DCA": null,
+              "DCV": null,
+              "DCW": null,
+              "DCWH": null,
+              "Tms": null,
+              "Tmp": null,
+              "DCSt": null,
+              "DCEvt": null
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 705,
+      "name": "DER Volt-Var",
+      "points": {
+        "Ena": null,
+        "AdptCrvReq": null,
+        "AdptCrvRslt": null,
+        "NPt": null,
+        "NCrv": null,
+        "RvrtTms": null,
+        "RvrtRem": null,
+        "RvrtCrv": null,
+        "V_SF": null,
+        "DeptRef_SF": null,
+        "RspTms_SF": null
+      },
+      "groups": {
+        "Crv": [
+          {
+            "points": {
+              "ActPt": null,
+              "DeptRef": null,
+              "Pri": null,
+              "VRef": null,
+              "VRefAuto": null,
+              "VRefAutoEna": null,
+              "VRefAutoTms": null,
+              "RspTms": null,
+              "ReadOnly": null
+            },
+            "groups": {
+              "Pt": [
+                {
+                  "points": {
+                    "V": null,
+                    "Var": null
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

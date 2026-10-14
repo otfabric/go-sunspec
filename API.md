@@ -1,7 +1,8 @@
 # go-sunspec API reference
 
-Public API of `github.com/otfabric/go-sunspec` (package `sunspec`) and
-`github.com/otfabric/go-sunspec/registry`.
+Public API of `github.com/otfabric/go-sunspec` (package `sunspec`),
+`github.com/otfabric/go-sunspec/registry` and
+`github.com/otfabric/go-sunspec/devicefile`.
 
 Errors: [ERRORS.md](ERRORS.md). Release notes: [RELEASE.md](RELEASE.md).
 
@@ -30,6 +31,33 @@ defer client.Close()
 
 device, err := sunspec.Discover(ctx, client, &sunspec.DiscoverOptions{UnitID: 1})
 ```
+
+### A read-only client
+
+The client side of this package only reads registers: `Detect`, `Discover`,
+`Open` and every `Device` method send Read Holding Registers (FC 03) or Read
+Input Registers (FC 04), depending on `DiscoverOptions.RegType`, and nothing
+else. `ReadFunctionCodes` returns those two codes:
+
+```go
+func ReadFunctionCodes() []modbus.FunctionCode // FC 03 and FC 04; a new slice each call
+```
+
+Give them to `modbus.Config.AllowedFunctionCodes` (go-modbus v1.5.0) for a
+client that cannot write, whoever uses it:
+
+```go
+client, err := modbus.New(modbus.Config{
+    URL:                  "tcp://192.168.1.100:502",
+    AllowedFunctionCodes: sunspec.ReadFunctionCodes(),
+})
+```
+
+Such a client refuses every other function code (writes, coils, diagnostics,
+device identification) with an error wrapping
+`modbus.ErrFunctionCodeNotAllowed` before a byte is sent. Everything in this
+package works through it unchanged. The restriction belongs to the client:
+`Discover` and `Device` take any `*modbus.Client` and do not check it.
 
 ## Concurrency
 
@@ -351,6 +379,194 @@ go-modbus serves `tcp://` and `tcp+tls://`. `Server.Serve(ctx, conf)` is a
 convenience that starts such a server, waits for `ctx` and shuts it down
 (allowing connections five seconds to end).
 
+## Device files
+
+Package `github.com/otfabric/go-sunspec/devicefile` reads and writes *device
+files*: JSON documents that describe a SunSpec device by its models and their
+point values. It is the format `sunspecctl serve` runs, `sunspecctl capture`
+and `sunspecctl template` write and the OT Fabric SunSpec Explorer exports
+(the package was moved here from sunspecctl in v0.6.0).
+
+```json
+{
+  "unit_id": 1,
+  "base_address": 40000,
+  "models": [
+    {
+      "id": 1,
+      "points": { "Mn": "Acme", "Md": "PV-5000", "SN": "A-0001" }
+    },
+    {
+      "id": 103,
+      "points": {
+        "A": 18.3, "A_SF": -1,
+        "PhVphA": 230.4, "V_SF": -1,
+        "W": 4200, "W_SF": 0,
+        "Hz": 50.01, "Hz_SF": -2,
+        "St": "MPPT",
+        "Evt1": ["GROUND_FAULT"]
+      }
+    },
+    {
+      "id": 160,
+      "points": { "DCW_SF": 0 },
+      "groups": {
+        "module": [
+          { "points": { "ID": 1, "DCW": 2150 } },
+          { "points": { "ID": 2, "DCW": 2050 } }
+        ]
+      }
+    },
+    { "id": 64900, "registers": [1, 2, 3] }
+  ]
+}
+```
+
+| Member | Meaning |
+|---|---|
+| `unit_id` | Modbus unit ID, 1–255. Default 1. |
+| `base_address` | Register address of the `SunS` marker. Default 40000. |
+| `models` | The models in chain order. Each has an `id` and either `points` (and `groups`) or `registers`. A model ID may occur more than once. |
+| `points` | Point values by SunSpec point name. A point that is left out is not implemented. |
+| `groups` | Repeating groups: group name → list of instances, each with its own `points` and `groups`. Count points such as `NPt` are filled in from the number of instances. |
+| `registers` | The model's data registers (what follows the ID and length registers), 0–65535 each. For models without a schema, and for anything to be served bit for bit. |
+| `name` | Ignored when the file is used; written for the reader. |
+
+A point value is what [`Values`](#values-by-point-type) takes, in JSON: a
+number (the engineering value for a point with a scale factor), a string (text,
+an enum symbol name, an address), a list of bitfield symbol names, a list of
+raw registers for any point, or `null` for "not implemented". Unknown members,
+a point given twice and point names the model does not have are errors.
+
+`devicefile.Schema()` returns a JSON Schema (draft 2020-12) of the format, the
+file [`devicefile/devicefile.schema.json`](devicefile/devicefile.schema.json),
+`$id` `https://otfabric.io/schemas/sunspec/devicefile-1.schema.json`. It
+describes the form of a file; whether models and points exist and values fit
+is checked when the device is built.
+
+```go
+const DefaultUnitID = 1
+const DefaultBaseAddress = 40000
+const SchemaID = "https://otfabric.io/schemas/sunspec/devicefile-1.schema.json"
+
+type File struct {
+    UnitID      *uint8  // nil: DefaultUnitID
+    BaseAddress *uint16 // nil: DefaultBaseAddress
+    Models      []Model
+}
+
+type Model struct {
+    ID        *uint16  // nil: "id" is missing, an error when the file is used
+    Name      string   // for the reader
+    Group              // the points and groups of the top-level group
+    Registers []uint16 // or: raw data registers
+}
+
+type Group struct {
+    Points Points
+    Groups map[string][]*Group // nil instance: an empty one
+}
+
+type Point struct {
+    Name  string
+    Value interface{} // parsed: json.Number, string, []interface{}, nil
+}
+
+type Points []Point // one JSON object, in order
+
+func New(unitID uint8, baseAddress uint16) *File // no models: "models": []
+func Parse(data []byte) (*File, error)
+func Load(path string) (*File, error)
+
+func (f *File) Marshal() ([]byte, error)      // indented by two spaces, ends with a newline
+func (f *File) Write(w io.Writer) error
+func (f *File) WriteFile(path string) error   // mode 0644
+
+func (f *File) ServerModels() ([]sunspec.ServerModel, error)
+func (f *File) Server(opts *ServerOptions) (*sunspec.Server, error)
+func (g *Group) Values() (*sunspec.Values, error)
+
+type ServerOptions struct {
+    UnitID             *uint8  // replaces the file's
+    BaseAddress        *uint16 // replaces the file's
+    SilentToOtherUnits bool
+    RegType            modbus.RegType
+    OnWrite            func(ctx context.Context, w *sunspec.ServerWrite) error
+}
+
+func Capture(ctx context.Context, device *sunspec.Device, raw bool) (*File, error)
+func FromDecoded(dm *sunspec.DecodedModel, raw bool) Model
+func Template(meta *registry.ModelMeta) Model
+
+func Schema() []byte
+```
+
+### Reading a file
+
+`Parse` checks the form of the file: JSON, the types of the members, no
+unknown members, no point given twice, nothing after the document. Its errors
+are `*SyntaxError`, with line and column for malformed JSON and for a member
+of the wrong type. `Load` reads a file and prefixes a parse error with the
+path. The order of the points is kept (`Points`), so that a file is written
+back the way it was read.
+
+`File.Server` builds the [`Server`](#serving) the file describes, which
+validates every value against the model's schema, and the layout:
+
+```go
+file, err := devicefile.Load("device.json")
+if err != nil {
+    return err
+}
+srv, err := file.Server(nil) // or &devicefile.ServerOptions{UnitID: &id, OnWrite: hook}
+if err != nil {
+    return err
+}
+return srv.Serve(ctx, &modbus.ServerConfig{URL: "tcp://127.0.0.1:1502"})
+```
+
+The device answers the file's unit ID at the file's base address, 1 and 40000
+when the file does not say; `ServerOptions.UnitID` and `BaseAddress` replace
+them. Unit ID 0 is refused. `File.ServerModels` gives the models alone, for
+your own `sunspec.NewServer` call. Errors name the model by position and ID,
+the group instance and the point (`*ModelError`, or the `*sunspec.EncodeError`
+of the encoder): see [ERRORS.md](ERRORS.md#device-files).
+
+### Writing a file
+
+`Capture` reads every model of a discovered `Device` and describes it;
+`FromDecoded` does so for one model you read yourself. A model that decoded
+without warnings is described by its point values, in schema order, which a
+person can read and edit; a model without a schema, one that is shorter or
+longer than its schema, and one whose values would not read back the same, by
+its `registers`. With `raw`, every model is described by its registers.
+Either way, serving the file gives a device that reads the same as the
+original; with `raw` it is identical register for register. Enum and bitfield
+points are written as numbers, so that values the schema does not name
+survive.
+
+`Capture` is all or nothing: a model that does not fit its schema
+(`ErrDecode`) is still captured, from its registers; any other read error
+ends it with `read model <id>: <cause>` and no file.
+
+`Template` describes a model with every point present and `null`, and one
+instance of each nested group: a skeleton to fill in.
+
+```go
+file, err := devicefile.Capture(ctx, device, false)
+if err != nil {
+    return err
+}
+err = file.WriteFile("device.json")
+
+skeleton := devicefile.New(devicefile.DefaultUnitID, devicefile.DefaultBaseAddress)
+skeleton.Models = append(skeleton.Models, devicefile.Template(registry.ByID(103)))
+err = skeleton.Write(os.Stdout)
+```
+
+A captured file is a snapshot and can hold serial numbers and network
+addresses of the device.
+
 ## Registry
 
 ```go
@@ -376,3 +592,6 @@ including the ID and L registers.
 - `DecodeError` — typed decode failure (see ERRORS.md)
 - `Values`, `EncodeError` — values for encoding, typed encode failure
 - `Server`, `ServerOptions`, `ServerModel`, `ServerWrite` — a served device
+- `ReadFunctionCodes` — the function codes of a read-only client
+- `devicefile.File`, `Model`, `Group`, `Points`, `Point` — a device file;
+  `devicefile.SyntaxError`, `ModelError` — its typed errors

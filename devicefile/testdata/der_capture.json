@@ -1,0 +1,110 @@
+{
+  "unit_id": 1,
+  "base_address": 40000,
+  "models": [
+    {
+      "id": 1,
+      "name": "Common",
+      "points": {
+        "Mn": "A\u003cb\u003e\u0026c",
+        "Md": "é"
+      }
+    },
+    {
+      "id": 705,
+      "name": "DER Volt-Var",
+      "points": {
+        "Ena": 1,
+        "NPt": 2,
+        "NCrv": 2,
+        "V_SF": -1,
+        "DeptRef_SF": -2,
+        "RspTms_SF": 0
+      },
+      "groups": {
+        "Crv": [
+          {
+            "points": {
+              "ActPt": 2,
+              "DeptRef": 1,
+              "VRef": 100,
+              "RspTms": 5,
+              "ReadOnly": 1
+            },
+            "groups": {
+              "Pt": [
+                {
+                  "points": {
+                    "V": 92,
+                    "Var": 30
+                  }
+                },
+                {
+                  "points": {
+                    "V": 108,
+                    "Var": -30
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "points": {
+              "ActPt": 1,
+              "ReadOnly": 0
+            },
+            "groups": {
+              "Pt": [
+                {
+                  "points": {
+                    "V": 100,
+                    "Var": 0
+                  }
+                },
+                {}
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 704,
+      "name": "DER AC Controls",
+      "points": {
+        "WMaxLimPctEna": 1,
+        "WMaxLimPct": 80.5,
+        "PF_SF": -2,
+        "WMaxLimPct_SF": -2
+      },
+      "groups": {
+        "PFWAbs": [
+          {
+            "points": {
+              "PF": 0.97
+            }
+          }
+        ],
+        "PFWAbsRvrt": [
+          {}
+        ],
+        "PFWInj": [
+          {
+            "points": {
+              "PF": 1,
+              "Ext": 1
+            }
+          }
+        ],
+        "PFWInjRvrt": [
+          {
+            "points": {
+              "PF": 0.96,
+              "Ext": 0
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

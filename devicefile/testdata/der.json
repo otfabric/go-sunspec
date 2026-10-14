@@ -1,0 +1,10 @@
+{"models": [
+ {"id": 1, "points": {"Mn": "A<b>&c", "Md": "é"}},
+ {"id": 705, "points": {"Ena": "ENABLED", "V_SF": -1, "DeptRef_SF": -2, "RspTms_SF": 0},
+  "groups": {"Crv": [
+    {"points": {"ActPt": 2, "DeptRef": 1, "VRef": 100, "RspTms": 5, "ReadOnly": "R"}, "groups": {"Pt": [{"points": {"V": 92, "Var": 30}}, {"points": {"V": 108, "Var": -30}}]}},
+    {"points": {"ActPt": 1, "ReadOnly": "RW"}, "groups": {"Pt": [{"points": {"V": 100, "Var": 0}}, {}]}}
+  ]}},
+ {"id": 704, "points": {"WMaxLimPctEna": 1, "WMaxLimPct": 80.5, "WMaxLimPct_SF": -2, "PF_SF": -2},
+  "groups": {"PFWInj": [{"points": {"PF": 1, "Ext": 1}}], "PFWInjRvrt": [{"points": {"PF": 0.96, "Ext": 0}}], "PFWAbs": [{"points": {"PF": 0.97}}], "PFWAbsRvrt": [{}]}}
+]}

@@ -27,6 +27,10 @@ or re-exports the ones that matter at the SunSpec layer.
 | Models do not fit the address space; update would change a model's length | `ErrModelLayout` |
 | `Server` model index out of range; `ServerModel` without registers and without schema | `ErrUnknownModel` |
 | Client write the `Server` refuses | Modbus exception 2 to the client; no Go error |
+| Function code a read-only client does not allow | Error wrapping `modbus.ErrFunctionCodeNotAllowed` (go-modbus); nothing is sent. The reads of this package are never refused by `ReadFunctionCodes()` |
+| Device file is not valid JSON, has an unknown member, a wrong type, a point twice | `*devicefile.SyntaxError` matching `devicefile.ErrSyntax` |
+| Device file model without ID, with registers and points, without schema; unsupported kind of value; unit ID 0 | `*devicefile.ModelError` (or a plain error for the unit ID) matching `devicefile.ErrInvalid` |
+| Device file value that does not fit its point, or models that do not fit | `*EncodeError` / `ErrModelLayout`, as from `NewServer` |
 
 Prefer `errors.Is` / `errors.As`:
 
@@ -128,6 +132,58 @@ A `Server` reports problems to Modbus clients as exceptions, not as Go errors:
 | Coils, discrete inputs, FC 22, FC 23 | 1, illegal function |
 | Write refused by `ServerOptions.OnWrite` | The error it returned; server device failure (4) when that is not a Modbus exception |
 
+## Device files
+
+Package `devicefile` has its own sentinels and types. Their messages do not
+start with a package name: they are written to follow a file name, as in
+`device.json: line 3, column 14: invalid character ...`.
+
+| Sentinel | Meaning |
+|----------|---------|
+| `devicefile.ErrSyntax` | `Parse`, `Load`: the text is not a device file. Always through `*SyntaxError` |
+| `devicefile.ErrInvalid` | `File.ServerModels`, `File.Server`: the file parsed but does not describe a device. Through `*ModelError` for a problem of one model; a plain error for unit ID 0 |
+
+```go
+type SyntaxError struct {
+    Line, Column int   // from 1; 0 when the position is not known
+    Err          error // the encoding/json error, or a description
+}
+
+type ModelError struct {
+    Index   int     // position in File.Models, from 0
+    ModelID *uint16 // nil when the model has no "id"
+    Err     error   // names the group instance and the point
+}
+```
+
+`SyntaxError` formats as `line <l>, column <c>: <cause>` and has a position
+for malformed JSON and for a member of the wrong type (`errors.As` finds the
+`*json.SyntaxError` or `*json.UnmarshalTypeError`). An unknown member, a point
+given twice, a truncated document and data after the document have none.
+`ModelError` formats as `models[<index>] (model <id>): <problem>`, for example
+`models[0] (model 160): group module[2]: point DCW: unsupported value true:
+use a number, a string, a list or null`.
+
+`File.Server` also returns what `NewServer` returns: `*EncodeError` (matching
+`ErrEncode`, and `ErrValueOutOfRange` or `ErrPointNotFound`) for a value or a
+name the model's schema refuses, `ErrModelLayout` for a model with an empty
+`registers` list or a chain that does not fit the address space. They do not
+match `devicefile.ErrInvalid`.
+
+`Load` returns the operating system's error for a file it cannot read, and
+`Capture` the read error prefixed with `read model <id>`; `errors.Is` matches
+the cause (`ErrPartialRead`, `ErrModelChanged`, a go-modbus error, the
+context's error). A nil device is an error wrapping
+`modbus.ErrUnexpectedParameters`.
+
+```go
+file, err := devicefile.Load(path)
+var syn *devicefile.SyntaxError
+if errors.As(err, &syn) && syn.Line > 0 {
+    // point the editor at syn.Line, syn.Column
+}
+```
+
 ## Partial and best-effort reads
 
 - `ReadAll` returns decoded models collected so far plus the first error
@@ -151,3 +207,9 @@ context deadline that suits a single request, or none and rely on `Timeout`.
 Logging, metrics, retries, timeouts, and connection errors come from the
 injected `*modbus.Client`. Configure them on `modbus.Config` before
 `Discover` / `Open`. See the go-modbus error and observability docs.
+
+A client created with `modbus.Config.AllowedFunctionCodes` refuses other
+function codes with an error wrapping `modbus.ErrFunctionCodeNotAllowed`
+before anything is sent. With `sunspec.ReadFunctionCodes()` as the list, no
+call of this package is ever refused: its client side sends FC 03 and FC 04
+only (see [API.md](API.md#a-read-only-client)).

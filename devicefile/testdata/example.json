@@ -1,0 +1,25 @@
+{
+  "unit_id": 3,
+  "base_address": 40000,
+  "models": [
+    {"id": 1, "name": "ignored", "points": {"Mn": "Acme", "Md": "PV-5000", "SN": "A-1", "DA": 3}},
+    {"id": 103, "points": {
+      "A": 12.34, "A_SF": -2,
+      "PhVphA": 230.1, "V_SF": -1,
+      "W": 5000, "W_SF": 1,
+      "Hz": null,
+      "WH": 123456789, "WH_SF": 0,
+      "St": "MPPT",
+      "Evt1": ["GROUND_FAULT", "OVER_TEMP"],
+      "TmpCab": [65036], "Tmp_SF": -1
+    }},
+    {"id": 160,
+      "points": {"DCA_SF": -1, "DCV_SF": 0, "DCW_SF": 0, "N": 2},
+      "groups": {"module": [
+        {"points": {"ID": 1, "IDStr": "east", "DCA": 8.5, "DCV": 300, "DCW": 2550}},
+        {"points": {"ID": 2, "IDStr": "west", "DCA": 7.5, "DCV": 310}}
+      ]}},
+    {"id": 123, "points": {"WMaxLimPct": 100, "WMaxLimPct_SF": -1, "Conn": "CONNECT"}},
+    {"id": 64900, "registers": [1, 2, 65535]}
+  ]
+}

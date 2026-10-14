@@ -27,6 +27,8 @@ Use it to build solar monitoring, energy-management (EMS), data-logging, DER-int
 - **Every Modbus transport** — Modbus TCP, serial RTU and ASCII (RS-485), TLS, UDP and serial-to-Ethernet bridges, with retries, timeouts, logging and metrics configured on the go-modbus client.
 - **Offline decoding and encoding** — `DecodeModel` decodes a register slice with no I/O, and `EncodeModel` builds one from point values: useful for captures, simulators and tests.
 - **Serve a device** — `Server` lays out a model chain from values given by point name, serves it through go-modbus, accepts client writes to writable points and lets you change values while it runs.
+- **Read-only by construction** — The client side sends two Modbus function codes, Read Holding Registers and Read Input Registers. `ReadFunctionCodes()` hands them to a go-modbus client that then refuses everything else before it is sent.
+- **Device files** — Package [`devicefile`](#device-files) reads and writes a SunSpec device as a JSON file: capture a real device, edit it, serve it again. The format has a JSON Schema.
 - **A CLI built on it** — [`sunspecctl`](https://github.com/otfabric/sunspecctl) detects, lists, reads and polls SunSpec devices, with table or JSON output, and serves simulated devices from a file.
 
 ---
@@ -130,11 +132,13 @@ registry.Count()         // 112
   - [Reading](#reading)
   - [Decoded values](#decoded-values)
   - [Serial (RTU) and other transports](#serial-rtu-and-other-transports)
+  - [A read-only client](#a-read-only-client)
   - [Registry](#registry)
   - [Ownership and concurrency](#ownership-and-concurrency)
   - [Observability](#observability)
   - [Errors](#errors)
 - [Serving a device](#serving-a-device)
+- [Device files](#device-files)
 - [Command-line tool](#command-line-tool)
 - [FAQ](#faq)
 - [Project Structure](#project-structure)
@@ -304,6 +308,19 @@ client, err := modbus.New(modbus.Config{URL: "rtuovertcp://192.168.1.50:4001"})
 
 Pass the device's Modbus address as `DiscoverOptions.UnitID`.
 
+### A read-only client
+
+`Detect`, `Discover` and every `Device` method only read registers: Modbus function codes 03 and 04. A monitoring program can make that a property of its connection, so that no code path, its own or a dependency's, can write to the device:
+
+```go
+client, err := modbus.New(modbus.Config{
+    URL:                  "tcp://192.168.1.100:502",
+    AllowedFunctionCodes: sunspec.ReadFunctionCodes(), // FC 03 and FC 04
+})
+```
+
+The client refuses any other function code with `modbus.ErrFunctionCodeNotAllowed` before a byte reaches the wire (go-modbus v1.5.0). Everything in this package works through such a client unchanged.
+
 ### Registry
 
 ```go
@@ -336,7 +353,7 @@ client, err := modbus.New(modbus.Config{
 
 ### Errors
 
-Use `errors.Is` / `errors.As` with package sentinels (`ErrNotSunSpec`, `ErrUnknownModel`, `ErrPointNotFound`, `ErrDecode`, `ErrPartialRead`, `ErrModelChanged`, and on the serving side `ErrEncode`, `ErrValueOutOfRange`, `ErrModelLayout`) and `*DecodeError` / `*EncodeError`. Details: [ERRORS.md](ERRORS.md).
+Use `errors.Is` / `errors.As` with package sentinels (`ErrNotSunSpec`, `ErrUnknownModel`, `ErrPointNotFound`, `ErrDecode`, `ErrPartialRead`, `ErrModelChanged`, and on the serving side `ErrEncode`, `ErrValueOutOfRange`, `ErrModelLayout`) and `*DecodeError` / `*EncodeError`. Package `devicefile` adds `ErrSyntax` / `*SyntaxError` and `ErrInvalid` / `*ModelError`. Details: [ERRORS.md](ERRORS.md).
 
 ## Serving a device
 
@@ -380,11 +397,57 @@ err = srv.SetPoint(1, "W", 4350) // model at index 1 of the chain
 
 Full contract: [API.md](API.md#serving). There is no authentication in Modbus: see [SECURITY.md](SECURITY.md) before you listen on a network.
 
+## Device files
+
+Package [`devicefile`](devicefile/) reads and writes a SunSpec device as a JSON document: its unit ID, base address and models, each given by point values in engineering units or by raw registers. It is the file `sunspecctl serve` runs, `sunspecctl capture` and `sunspecctl template` write and the OT Fabric SunSpec Explorer exports; the three share this one implementation.
+
+```json
+{
+  "unit_id": 1,
+  "base_address": 40000,
+  "models": [
+    {"id": 1, "points": {"Mn": "Acme", "Md": "PV-5000"}},
+    {"id": 103, "points": {"W": 4200, "W_SF": 0, "PhVphA": 230.4, "V_SF": -1, "St": "MPPT"}},
+    {"id": 160, "groups": {"module": [{"points": {"ID": 1, "DCW": 2150}}]}},
+    {"id": 64900, "registers": [1, 2, 3]}
+  ]
+}
+```
+
+```go
+import "github.com/otfabric/go-sunspec/devicefile"
+
+// Serve a file: every value and the layout are validated first.
+file, err := devicefile.Load("device.json")
+if err != nil {
+    return err // e.g. "device.json: line 3, column 14: invalid character ..."
+}
+srv, err := file.Server(nil)
+if err != nil {
+    return err // e.g. "models[1] (model 103): point W: ..."
+}
+err = srv.Serve(ctx, &modbus.ServerConfig{URL: "tcp://127.0.0.1:1502"})
+
+// Copy a real device into a file that serves the same registers and values.
+captured, err := devicefile.Capture(ctx, device, false)
+if err != nil {
+    return err
+}
+err = captured.WriteFile("device.json")
+```
+
+- **Capture** — models that decode cleanly are written as point values, which are easy to read and edit; a model without a schema, or one that would not read back the same, as `registers`. `Capture(ctx, device, true)` writes every model as registers.
+- **Template** — `devicefile.Template(registry.ByID(103))` is a model with every point present and `null`, to fill in.
+- **Strict** — unknown members, a point given twice and names the model does not have are errors with the model, group instance and point they concern, so a typo does not silently serve an empty value.
+- **JSON Schema** — [`devicefile/devicefile.schema.json`](devicefile/devicefile.schema.json) (draft 2020-12), also returned by `devicefile.Schema()`, for editors and other tools.
+
+The format and the API are described in [API.md](API.md#device-files), the errors in [ERRORS.md](ERRORS.md#device-files).
+
 ## Command-line tool
 
 `sunspecctl`, the command-line tool for inspecting SunSpec devices, is built on this library and lives in its own repository: **[otfabric/sunspecctl](https://github.com/otfabric/sunspecctl)**. It detects SunSpec devices, lists their models, and reads or polls models and single points as text or JSON, over the same transports as the library.
 
-It also serves simulated devices from a file (`sunspecctl serve`), using the [`Server`](#serving-a-device) of this library.
+It also serves simulated devices from a file (`sunspecctl serve`), using the [`Server`](#serving-a-device) and the [device files](#device-files) of this library.
 
 Up to go-sunspec v0.4.2 it was part of this repository (`cmd/sunspecctl`) and its binaries were attached to the go-sunspec releases. From v0.5.0 on, releases of this repository are the library only; `sunspecctl` binaries and `go install github.com/otfabric/sunspecctl@latest` come from the new repository. Its version numbering starts again at v0.1.0 there.
 
@@ -416,11 +479,11 @@ They are still discovered and listed. `ReadModel` returns them with raw register
 
 ### Can go-sunspec write SunSpec points (controls)?
 
-Not as a client: `Device` reads and decodes. You can write registers with the same go-modbus client (`client.WriteRegisters`) using the address and offset from the discovered model and its schema; `EncodeModel` gives you the registers for values by point name. On the serving side it is the other way round: a [`Server`](#serving-a-device) accepts writes from clients to the points SunSpec defines as writable.
+Not as a client: `Device` reads and decodes, and sends nothing but read requests (see [A read-only client](#a-read-only-client)). You can write registers with the same go-modbus client (`client.WriteRegisters`) using the address and offset from the discovered model and its schema; `EncodeModel` gives you the registers for values by point name. On the serving side it is the other way round: a [`Server`](#serving-a-device) accepts writes from clients to the points SunSpec defines as writable.
 
 ### Can I simulate a SunSpec device?
 
-Yes. Build a [`Server`](#serving-a-device) from models and point values and serve it with go-modbus, or without writing code run `sunspecctl serve` with a device file; `sunspecctl capture` writes such a file from a real device.
+Yes. Build a [`Server`](#serving-a-device) from models and point values and serve it with go-modbus, or load a [device file](#device-files) with package `devicefile` and serve that. Without writing code, run `sunspecctl serve` with a device file; `sunspecctl capture` writes such a file from a real device.
 
 ### My device changed its models while my program was running. What happens?
 
@@ -444,6 +507,7 @@ go-sunspec/
 ├── models/            SunSpec JSON models (from sunspec/models; see models/README.md)
 ├── registry/          Generated model metadata + lookups
 ├── testutil/          Test fixture server
+├── devicefile/        Device files: a SunSpec device as JSON (parse, serve, capture, template, JSON Schema)
 ├── sync-models.sh     Download the SunSpec JSON models from sunspec/models
 ├── check-models.sh    Report models that are new, changed or removed upstream
 ├── API.md             Public API contract
@@ -460,7 +524,8 @@ go-sunspec/
 ├── read.go            Batch register reader (>125 splitting)
 ├── encode.go          Values, EncodeModel(), DecodedModel.Values()
 ├── encode_point.go    Per-type point encoders
-└── server.go          Server: a served device (go-modbus RequestHandler)
+├── server.go          Server: a served device (go-modbus RequestHandler)
+└── readonly.go        ReadFunctionCodes: the function codes of a read-only client
 ```
 
 ## Updating Models
@@ -504,7 +569,9 @@ wire and misbehaving devices) and parallel stress tests. See
 ## Requirements
 
 - Go 1.23+
-- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.4.2+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.5.0+
+
+The tests of package `devicefile` validate files against its JSON Schema with [santhosh-tekuri/jsonschema](https://github.com/santhosh-tekuri/jsonschema) v6. It is a test dependency only: programs that import go-sunspec do not build it.
 
 ## Contributing
 

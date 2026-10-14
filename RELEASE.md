@@ -1,5 +1,35 @@
 # go-sunspec Releases
 
+## v0.6.0
+
+**Date:** 2026-10-14
+**Previous release:** v0.5.1
+
+## Summary
+
+The device file, the JSON description of a SunSpec device that `sunspecctl serve` runs and `sunspecctl capture` writes, is now part of the library: the new package `devicefile` parses, validates, serves, captures and writes it, and publishes a JSON Schema of the format. The module moves to go-modbus v1.5.0, whose clients can be restricted to a list of function codes; `ReadFunctionCodes` gives the list for a client that can read a SunSpec device and cannot write to it. Reading, decoding, encoding and serving are unchanged.
+
+## Changes
+
+### Added
+
+- **Package `devicefile`** (`github.com/otfabric/go-sunspec/devicefile`) — the device file format, moved from sunspecctl; sunspecctl v0.2.0 and sunspec-explorer v0.0.3 use it. `Parse` and `Load` read a file, keeping the order of its points; unknown members, a point given twice and data after the document are errors, with line and column for malformed JSON. `File.Server` builds the `Server` the file describes (`ServerOptions` replaces the unit ID and base address and takes an `OnWrite` hook), `File.ServerModels` gives the models for your own `NewServer` call, `Group.Values` the values of one group instance. `Capture` reads every model of a `Device` and `FromDecoded` describes one decoded model: by point values when the model decoded cleanly and reads back the same, by registers otherwise or on request. `Template` is a model with every point `null`. `File.Marshal`, `Write` and `WriteFile` write the indented form. The files written, the files accepted and the error messages are those of sunspecctl v0.1.x.
+- **JSON Schema of the device file** — `devicefile/devicefile.schema.json` (draft 2020-12, `$id` `https://otfabric.io/schemas/sunspec/devicefile-1.schema.json`), embedded and returned by `devicefile.Schema()`. It describes the form of a file; the tests validate captured files, the template of every registry model and the documented examples against it.
+- **`ReadFunctionCodes()`** — returns the two Modbus function codes the client side of this package sends, Read Holding Registers (0x03) and Read Input Registers (0x04), as a new slice for `modbus.Config.AllowedFunctionCodes`. A client created with it refuses every other function code before anything is sent; `Detect`, `Discover`, `Open` and all `Device` methods work through it unchanged, which `TestReadOnlyClient` verifies for holding and input registers.
+- **Errors** — `devicefile.ErrSyntax` with the typed `*devicefile.SyntaxError` (line, column) and `devicefile.ErrInvalid` with `*devicefile.ModelError` (model position and ID). Their messages are the ones sunspecctl printed.
+
+### Changed
+
+- **go-modbus** — requires `github.com/otfabric/go-modbus` v1.5.0 (v0.5.1 required v1.4.2). It adds `modbus.Config.AllowedFunctionCodes`: a client refuses function codes outside the list with an error wrapping `modbus.ErrFunctionCodeNotAllowed` before a connection is dialled or a byte is sent. Without the option a client behaves as before.
+- **Test dependency** — the tests of `devicefile` use `github.com/santhosh-tekuri/jsonschema/v6` to validate files against the schema. No package of the library imports it: programs that use go-sunspec do not build it, and the library itself still depends on go-modbus alone.
+- **Documentation** — README, API.md, ERRORS.md and SECURITY.md describe device files and the read-only client.
+
+### Unchanged
+
+- No changes to reading, decoding, encoding, serving, the model definitions or existing signatures. `Discover` and `Device` take any `*modbus.Client`, restricted or not.
+
+---
+
 ## v0.5.1
 
 **Date:** 2026-10-13

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://otfabric.io/schemas/sunspec/devicefile-1.schema.json",
+  "title": "SunSpec device file",
+  "description": "A SunSpec device described by its models and their point values: what \"sunspecctl serve\" runs, what \"sunspecctl capture\" and \"sunspecctl template\" write, and what the OT Fabric SunSpec Explorer exports. Implemented by the Go package github.com/otfabric/go-sunspec/devicefile. Unknown members are errors. The schema describes the form of a file; whether the models and points exist in the SunSpec model definitions and the values fit their points is checked when the device is built.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "unit_id": {
+      "description": "Modbus unit ID the device answers. Default 1. 0 is the Modbus broadcast address and cannot be served.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 255,
+      "default": 1
+    },
+    "base_address": {
+      "description": "Register address of the \"SunS\" marker. Default 40000. Clients find a device at 0, 40000 or 50000 without being told.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535,
+      "default": 40000
+    },
+    "models": {
+      "description": "The models of the device in chain order. A model ID may occur more than once. A file without models describes an empty device.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/model" }
+    }
+  },
+  "$defs": {
+    "model": {
+      "description": "One model: given by point values (\"points\" and \"groups\"), which are encoded with the SunSpec definition of the model, or by its raw data registers (\"registers\"), not both. A model with neither has every point not implemented.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "description": "SunSpec model ID.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "name": {
+          "description": "The model's name. Written for the reader; ignored when the file is used.",
+          "type": "string"
+        },
+        "points": { "$ref": "#/$defs/points" },
+        "groups": { "$ref": "#/$defs/groups" },
+        "registers": {
+          "description": "The model's data registers: what follows the ID and length registers. For vendor models, which have no definition, and for anything that must be served bit for bit.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/register" }
+        }
+      },
+      "dependentSchemas": {
+        "registers": {
+          "description": "A model given by registers has no points and no groups.",
+          "properties": {
+            "points": false,
+            "groups": false
+          }
+        }
+      }
+    },
+    "group": {
+      "description": "One instance of a group: its points and the instances of its nested groups.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "points": { "$ref": "#/$defs/points" },
+        "groups": { "$ref": "#/$defs/groups" }
+      }
+    },
+    "points": {
+      "description": "Point values by SunSpec point name, as in the model definition. A name may occur once. A point that is left out is not implemented. The order of the members has no meaning; written files list the points in the order of the model definition.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/value" }
+    },
+    "groups": {
+      "description": "Nested groups: group name to list of instances. Count points such as NPt or NCrv are filled in from the number of instances.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "anyOf": [
+            { "$ref": "#/$defs/group" },
+            { "description": "An instance with every point not implemented.", "type": "null" }
+          ]
+        }
+      }
+    },
+    "value": {
+      "description": "The value of a point.",
+      "anyOf": [
+        {
+          "description": "A number. A point with a scale factor takes the engineering value: with \"A_SF\": -1, \"A\": 18.3 is stored as 183. For an enum or bitfield point, the number as it is.",
+          "type": "number"
+        },
+        {
+          "description": "The text of a string point, the symbol name of an enum point, or an address (ipaddr, ipv6addr, eui48) in its usual notation.",
+          "type": "string"
+        },
+        {
+          "description": "The point is not implemented.",
+          "type": "null"
+        },
+        {
+          "description": "The names of the bits that are set in a bitfield point; an empty list for none.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        {
+          "description": "The raw registers of the point, exactly as many as the point has.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/register" }
+        }
+      ]
+    },
+    "register": {
+      "description": "The value of one 16-bit register.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    }
+  }
+}

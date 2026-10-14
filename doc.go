@@ -12,7 +12,8 @@
 //
 // This package is a domain layer on top of [github.com/otfabric/go-modbus].
 // Transport, retries, logging, metrics, and connection lifecycle belong to the
-// injected *modbus.Client, and on the serving side to the *modbus.Server a
+// injected *modbus.Client (which Detect, Discover and Device only ever ask to
+// read registers: function codes 03 and 04), and on the serving side to the *modbus.Server a
 // Server is handed to. This package does not open or close connections; the
 // one exception is the convenience Server.Serve, which runs a modbus.Server
 // for the duration of a context.
@@ -27,6 +28,10 @@
 //   - NewServer — lay out a device from models and values; the Server is a
 //     go-modbus RequestHandler, and its SetPoint / Update methods change
 //     values while it is served
+//   - ReadFunctionCodes — the function codes of a client that cannot write
+//
+// Package devicefile reads and writes a device as a JSON file: what a Server
+// is built from, and what a Device that was read can be written as.
 //
 // # Ownership
 //
