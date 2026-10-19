@@ -79,7 +79,7 @@ client, err := modbus.New(modbus.Config{
     URL:     "tcp://192.168.1.100:502",
     Logger:  modbus.NopLogger(), // or a real logger
     // Metrics: ...,
-    // Retry: ...,
+    // RetryPolicy: ...,
 })
 ```
 
