@@ -1,5 +1,34 @@
 # go-sunspec Releases
 
+## v0.6.1
+
+**Date:** 2026-10-29
+**Previous release:** v0.6.0
+
+## Summary
+
+Dependency update: go-modbus v1.7.2 with go-serial v0.1.8. No API changes.
+
+## Changes
+
+### Dependencies
+
+- **go-modbus v1.5.0 → v1.7.2.** Picks up the go-modbus robustness and
+  protocol fixes of v1.5.1–v1.7.2; see go-modbus's release notes.
+- **go-serial v0.1.6 → v0.1.8**, which fixes two POSIX serial I/O bugs:
+  - `Write` no longer loses data when the tty output buffer is full. It
+    used to return a short count with a nil error (or `n == -1` with
+    `EAGAIN`); it now blocks until every byte is written.
+  - `Read` works when the port's file descriptor is 1024 or higher. It
+    used to return a spurious `io.EOF` at once.
+
+### Documentation
+
+- API.md names the go-modbus `RetryPolicy` field in the observability
+  example; security contact is security@otfabric.io.
+
+---
+
 ## v0.6.0
 
 **Date:** 2026-10-14
