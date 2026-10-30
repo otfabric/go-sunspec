@@ -1,4 +1,4 @@
-.PHONY: help all generate generate-check sync models-check build check test fuzz bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean
+.PHONY: help all generate generate-check sync models-check build check test fuzz bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean cross e2e
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -35,6 +35,17 @@ sync: ## Sync SunSpec JSON models from upstream and regenerate
 
 models-check: ## Report SunSpec models that are new, changed or removed upstream (read-only)
 	@./check-models.sh
+
+CROSS_PLATFORMS := linux/amd64 linux/arm64 linux/arm darwin/arm64 windows/amd64
+
+cross: ## Cross-compile without cgo for the supported platforms
+	@for p in $(CROSS_PLATFORMS); do \
+		echo "Building for $$p"; \
+		CGO_ENABLED=0 GOOS=$${p%/*} GOARCH=$${p#*/} go build ./... || exit 1; \
+	done
+
+e2e: ## End-to-end suite: the served device read through the client path over loopback TCP
+	@go test -count=1 -race -run '^(TestE2E|TestIntegration)' .
 
 check: fmt fmt-check vet lint lint-ci vuln test coverage-check ## Run all checks (format, vet, lint, test, coverage)
 
