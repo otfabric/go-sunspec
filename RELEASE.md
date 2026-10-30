@@ -1,5 +1,67 @@
 # go-sunspec Releases
 
+## v0.7.0
+
+**Date:** 2026-10-30
+**Previous release:** v0.6.1
+
+## Summary
+
+`Device.ReadModels` reads several models with fewer requests: adjacent models
+share a read request, and each model gets its own result. `Device.ModelsByID`
+finds every instance of a model. Requires go-modbus v1.8.0. `ReadAll` and the
+other read methods are unchanged.
+
+## Changes
+
+### Added
+
+- **`Device.ReadModels(ctx, insts) ([]ModelResult, error)`**:
+  - **Requests:** plans the instances with the go-modbus `batch` package.
+    Adjacent models share a request of up to 125 registers, and no register
+    outside them is read.
+  - **Header check:** every request carries the headers of its models,
+    checked as `ReadModel` checks them (`ErrModelChanged`).
+  - **Splitting:** a model of up to 125 registers including its header
+    (`Length` ≤ 123) is never split, so its values and scale factors come
+    from one response. A longer model gets requests of its own and keeps
+    `ErrPartialRead`.
+  - **Results:** one `ModelResult` (`Instance`, `Model`, `Err`) per instance,
+    in input order, each as `ReadModel` returns it. The error is nil only when
+    every instance succeeded; otherwise it wraps the first failure.
+  - **Exceptions:** when a Modbus exception fails a request shared by several
+    models, as from a device that refuses reads across model boundaries, each
+    of them is read again on its own.
+  - **Stopping:** a timeout, transport error or ended context stops the batch.
+    Instances not read have a nil `Model` and an `Err` wrapping
+    `batch.ErrNotAttempted` and the cause.
+  - **Opt in** for the whole chain: `d.ReadModels(ctx, d.Discovery.Models)`.
+- **`Device.ModelsByID(id) []ModelInstance`**: every instance of a model ID,
+  in chain order (for example one model 160 per MPPT tracker set), as copies
+  that do not change `Device.Discovery`.
+
+### Performance
+
+On an inverter chain (models 1, 103, 120–123):
+
+| Delay per request | `ReadAll` | `ReadModels` |
+|---|---|---|
+| 0 | 6 requests, 238 µs | 3 requests, 132 µs |
+| 5 ms | 35 ms | 17.7 ms |
+| 20 ms | 128 ms | 64 ms |
+
+### Dependencies
+
+- **go-modbus v1.7.2 → v1.8.0**, which adds the `batch` package.
+
+### Tests and tooling
+
+- `make bench`: end-to-end benchmarks of `ReadAll`, `ReadModels`, `ReadModel`
+  and `ReadPoint` at 0, 5 and 20 ms per request, reporting requests and PDU
+  bytes, and CPU benchmarks of `DecodeModel`.
+
+---
+
 ## v0.6.1
 
 **Date:** 2026-10-29
