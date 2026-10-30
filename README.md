@@ -245,6 +245,12 @@ dm, err := device.ReadModelByID(ctx, 101)
 inst := device.ModelByID(101)
 point, err := device.ReadPoint(ctx, *inst, "W")
 fmt.Printf("Power: %g W\n", *point.ScaledValue)
+
+// Read every instance of a model the device exposes more than once.
+for _, mppt := range device.ModelsByID(160) {
+    dm, err := device.ReadModel(ctx, mppt)
+    // ...
+}
 ```
 
 Each read of a model includes its ID and length registers and checks them against the discovery result: a device whose model chain changed since `Discover` is reported with `ErrModelChanged` instead of being decoded with a stale layout.

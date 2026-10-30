@@ -109,7 +109,13 @@ func (d *Device) ReadModel(ctx context.Context, inst ModelInstance) (*DecodedMod
 func (d *Device) ReadModelByID(ctx context.Context, modelID uint16) (*DecodedModel, error)
 func (d *Device) ReadPoint(ctx context.Context, inst ModelInstance, pointName string) (*DecodedPoint, error)
 func (d *Device) ModelByID(id uint16) *ModelInstance
+func (d *Device) ModelsByID(id uint16) []ModelInstance
 ```
+
+`ModelByID` returns a pointer to the first instance in `Discovery.Models`.
+`ModelsByID` returns copies of every instance of the ID, in chain order (for
+example one model 160 per MPPT tracker set), or nil when there is none;
+changing them does not change the discovery result.
 
 `ReadModel` (and everything built on it) reads the model's two header
 registers together with its data and compares them with the discovery result.

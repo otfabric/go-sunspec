@@ -121,6 +121,40 @@ func TestNewDeviceCopiesRegType(t *testing.T) {
 	}
 }
 
+func TestModelsByID(t *testing.T) {
+	disc := &DiscoveryResult{Models: []ModelInstance{
+		{Header: ModelHeader{ID: 160, StartAddress: 10, Length: 4}, Name: "mppt"},
+		{Header: ModelHeader{ID: 1, StartAddress: 2}},
+		{Header: ModelHeader{ID: 160, StartAddress: 20, Length: 6}, Name: "mppt"},
+	}}
+	d := NewDevice(nil, 1, disc)
+
+	got := d.ModelsByID(160)
+	if len(got) != 2 || got[0].Header.StartAddress != 10 || got[1].Header.StartAddress != 20 {
+		t.Fatalf("ModelsByID(160) = %+v, want both instances in chain order", got)
+	}
+	got[0].Header.StartAddress = 99
+	got[1].Name = "changed"
+	if disc.Models[0].Header.StartAddress != 10 || disc.Models[2].Name != "mppt" {
+		t.Error("changing the result of ModelsByID changed the discovery result")
+	}
+	if again := d.ModelsByID(160); again[0].Header.StartAddress != 10 {
+		t.Errorf("a later call sees %+v", again[0])
+	}
+	if one := d.ModelsByID(1); len(one) != 1 || one[0].Header.StartAddress != 2 {
+		t.Errorf("ModelsByID(1) = %+v", one)
+	}
+	if first := d.ModelByID(160); *first != disc.Models[0] {
+		t.Error("ModelByID and ModelsByID disagree on the first instance")
+	}
+	if got := d.ModelsByID(2); got != nil {
+		t.Errorf("ModelsByID of an absent model = %+v, want nil", got)
+	}
+	if got := NewDevice(nil, 1, nil).ModelsByID(1); got != nil {
+		t.Errorf("ModelsByID without discovery = %+v, want nil", got)
+	}
+}
+
 func TestNilClientIsAnErrorNotAPanic(t *testing.T) {
 	ctx := context.Background()
 
