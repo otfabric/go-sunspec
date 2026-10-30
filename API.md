@@ -107,6 +107,7 @@ has more models, or what was walked is not a model chain.
 func (d *Device) ReadAll(ctx context.Context) ([]*DecodedModel, error)
 func (d *Device) ReadModel(ctx context.Context, inst ModelInstance) (*DecodedModel, error)
 func (d *Device) ReadModelByID(ctx context.Context, modelID uint16) (*DecodedModel, error)
+func (d *Device) ReadModels(ctx context.Context, insts []ModelInstance) ([]ModelResult, error)
 func (d *Device) ReadPoint(ctx context.Context, inst ModelInstance, pointName string) (*DecodedPoint, error)
 func (d *Device) ModelByID(id uint16) *ModelInstance
 func (d *Device) ModelsByID(id uint16) []ModelInstance
@@ -123,6 +124,44 @@ When the device no longer reports that ID and length at that address the read
 fails with `ErrModelChanged`; the returned `DecodedModel` holds the data
 registers, undecoded. A model that needs several requests is read from its
 header address in chunks of 125 registers.
+
+### Reading several models
+
+```go
+type ModelResult struct {
+    Instance ModelInstance // as given
+    Model    *DecodedModel // as ReadModel returns it; nil when not attempted
+    Err      error         // as ReadModel returns it, or wrapping batch.ErrNotAttempted
+}
+```
+
+`ReadModels` reads the given instances with fewer requests than `ReadModel`
+when they are adjacent in the chain, as `Discovery.Models` are: adjacent
+instances share a request up to 125 registers, and no register outside them is
+read. It plans the requests with the go-modbus
+[`batch`](https://github.com/otfabric/go-modbus/blob/main/API.md#12-batch-reads-package-batch)
+package. Each request includes the headers of the instances it serves, and
+each header is checked as `ReadModel` checks it. An instance with `Length` of
+123 or less is never split across requests, so its values and scale factors
+come from one response. A longer one gets requests of its own, as in
+`ReadModel`. An instance given twice is read once.
+
+It returns one `ModelResult` per instance, in input order. The error is nil
+when every instance succeeded; otherwise it wraps the first failure, and each
+result carries its own:
+
+| What happens | Instances affected | Result |
+|---|---|---|
+| A Modbus exception on a request serving several instances | those instances | each is read again on its own, so it gets the result `ReadModel` gives it |
+| A Modbus exception on a request of one instance | that instance | as `ReadModel`: the exception, or `ErrPartialRead` with the registers read for a long model |
+| A timeout or transport error | the instances of that request | that error; the instances after it are not read |
+| A cancelled or expired context | the instances not yet read | `Model` nil, `Err` wrapping `batch.ErrNotAttempted` and the context error |
+
+The requests are made one after another; they are not an atomic snapshot of
+the device. `ReadAll` is unchanged and reads one model per request; to read the
+whole chain with fewer requests, call `d.ReadModels(ctx, d.Discovery.Models)`.
+On the benchmark inverter chain (models 1, 103, 120–123) that takes 3 requests
+instead of 6.
 
 Offline decode (no I/O):
 

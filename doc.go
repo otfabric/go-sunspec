@@ -23,6 +23,7 @@
 //   - Detect — probe for a SunSpec marker
 //   - Discover / Open — enumerate models and return a Device
 //   - Device.ReadAll / ReadModel / ReadModelByID / ReadPoint — read and decode
+//   - Device.ReadModels — read several models, adjacent ones sharing requests
 //   - Device.ModelByID / ModelsByID — find model instances by ID
 //   - DecodeModel — decode a register slice against a schema (no I/O)
 //   - EncodeModel — build a model's registers from values by point name (no I/O)
