@@ -59,7 +59,7 @@ Run `make` (or `make help`) for the full list of targets.
 ### SunSpec models and generated code
 
 - The JSON files in [`models/`](models/) are copied as-is from [sunspec/models](https://github.com/sunspec/models). **Do not edit them by hand**; a wrong definition must be fixed upstream
-- [`registry/models_gen.go`](registry/models_gen.go) is generated from them by `make generate`. **Do not edit it by hand**; change the generator in [`internal/gen`](internal/gen/) instead. A test fails if the committed file differs from what the generator produces
+- [`registry/models_gen.go`](registry/models_gen.go) is generated from them by `make generate`. **Do not edit it by hand**; change the generator in [`internal/gen`](internal/gen/) instead. A test and `make generate-check`, which CI runs, fail if the committed file differs from what the generator produces
 - `./check-models.sh` (or `make models-check`) reports what is new, changed or removed upstream without modifying anything (add `--diff` to see which points changed); `make sync` downloads the models and regenerates the registry
 - When you update models, review the diff of `registry/models_gen.go`: changed point names, types, offsets or scale factors can break callers, and belong in the release notes
 
@@ -89,7 +89,7 @@ Examples:
 - Use the package's own `Server` (see `newServed` in `harness_test.go`) or [`testutil`](testutil/) for anything that talks to a device: both serve a SunSpec model chain over Modbus TCP
 - Assert behaviour: decoded values, scale factors, the specific error — not just that the code ran
 - Keep tests fast, deterministic and race-clean; CI runs them with `-race` on every Go version from 1.23 and a 120 s per-package timeout
-- Coverage is enforced by `make check` and Codecov; new code should come with tests
+- Coverage is enforced by `make check` and by CI (minimum 90 %); new code should come with tests
 - If your change affects what is read from a device, verify against real hardware when possible and say which device in the pull request
 
 ### Test layers
@@ -101,6 +101,7 @@ Examples:
 | End-to-end | `e2e_test.go`, `integration_test.go` | A served device read through the public client path over real TCP. `e2e_test.go` starts with a feature → test matrix: add a line when you add a feature, and a test when a line has none |
 | Chaos | `chaos_test.go`, `chaos_proxy_test.go` | Faults on the wire (a proxy that drops, delays, truncates, splits, duplicates and corrupts frames) and in the device (exceptions, changing chains, lying headers, garbage). They assert invariants, not timings: no panic, no hang, no goroutine leak, and no wrong value returned as valid |
 | Stress | `stress_test.go` | Many goroutines reading, updating and writing at once, and server restarts under load. They assert consistency: no torn model, no generation going back |
+| Fuzz | `decode_fuzz_test.go`, `devicefile/parse_fuzz_test.go` | `DecodeModel` on arbitrary registers against every registry model, `devicefile.Parse` on arbitrary text. They assert invariants (`make fuzz`; CI runs each target for 10 s): no panic, documented errors only, points inside the registers, what decodes without warnings or parses reads back the same. A new decoder of untrusted input gets a target. An input that fails is committed under `testdata/fuzz/` with the fix |
 
 `harness_test.go` has the helpers the last three share (a handler shim that swaps or distorts the device behind a running server, loopback servers, the `served` oracle).
 

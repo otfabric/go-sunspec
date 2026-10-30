@@ -1,4 +1,4 @@
-.PHONY: help all generate sync models-check build check test bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean
+.PHONY: help all generate generate-check sync models-check build check test fuzz bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -25,6 +25,9 @@ generate: ## Regenerate registry from SunSpec JSON models
 	@echo "Generating registry/models_gen.go"
 	@go run ./internal/gen
 
+generate-check: generate ## Fail if regenerating changes the committed registry (CI drift check)
+	@git diff --exit-code --stat -- registry/models_gen.go || { echo "registry/models_gen.go is out of date: run make generate and commit the result."; exit 1; }
+
 sync: ## Sync SunSpec JSON models from upstream and regenerate
 	@echo "Syncing SunSpec models"
 	@./sync-models.sh
@@ -38,6 +41,16 @@ check: fmt fmt-check vet lint lint-ci vuln test coverage-check ## Run all checks
 test: ## Run unit and integration tests with race detector
 	@echo "Running tests (race detector)"
 	@go test -count=1 -race ./...
+
+# Duration each fuzz target runs. Override with FUZZTIME=... (e.g. FUZZTIME=5m).
+FUZZTIME ?= 30s
+fuzz: ## Run every fuzz target for FUZZTIME each (default 30s)
+	@for pkg in $$(go list ./...); do \
+		for f in $$(go test -list '^Fuzz' $$pkg | grep '^Fuzz'); do \
+			echo "fuzz $$pkg $$f"; \
+			go test -run='^$$' -fuzz="^$$f$$" -fuzztime=$(FUZZTIME) $$pkg || exit 1; \
+		done; \
+	done
 
 # Duration the chaos and the stress tests each keep looping in soak mode. Override with
 # SOAKTIME=... (e.g. SOAKTIME=30m). In soak mode the scripted chaos scenarios also sweep

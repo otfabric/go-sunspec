@@ -567,14 +567,16 @@ and closes itself once `models/` is back in sync.
 make check         # format, vet, lint, vulnerability scan, race tests, coverage gate
 make test          # tests with the race detector
 make coverage      # coverage report for the library packages
+make fuzz          # every fuzz target for FUZZTIME each (default 30s)
 make soak          # chaos and stress tests for SOAKTIME each (default 2m)
 ```
 
 Tests need no hardware: the library's own `Server` and the [`testutil`](testutil/)
 fixture stand in for devices. Next to the unit tests there are end-to-end tests
 (served device against the client path over TCP), chaos tests (faults on the
-wire and misbehaving devices) and parallel stress tests. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+wire and misbehaving devices), parallel stress tests and fuzz targets. See
+[CONTRIBUTING.md](CONTRIBUTING.md). What the library does not do, and what has
+not been verified, is in [LIMITATIONS.md](LIMITATIONS.md).
 
 ## Requirements
 
