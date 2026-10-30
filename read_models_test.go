@@ -151,9 +151,9 @@ func TestReadModelsTimeoutStopsBatch(t *testing.T) {
 	m := dev.Discovery.Models
 	h.hangAt = int(m[2].Header.StartAddress) // the request for 120-122
 
-	// No deadline on the context: on tcp a context deadline replaces the
-	// client's timeout.
-	results, err := dev.ReadModels(context.Background(), m)
+	// The client's 200 ms timeout ends the hung request well within the
+	// test context's deadline (go-modbus v1.9.0 and later).
+	results, err := dev.ReadModels(testCtx(t), m)
 	if !errors.Is(err, modbus.ErrRequestTimedOut) {
 		t.Fatalf("err = %v, want it to wrap ErrRequestTimedOut", err)
 	}
