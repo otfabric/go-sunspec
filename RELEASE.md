@@ -1,5 +1,36 @@
 # go-sunspec Releases
 
+## v0.7.1
+
+**Date:** 2026-10-30
+**Previous release:** v0.7.0
+
+## Summary
+
+Dependency update: go-modbus v1.9.0. A read from a device that never answers
+now ends at the client's `Config.Timeout` even when the context has a later
+deadline. No API changes.
+
+## Changes
+
+### Dependencies
+
+- **go-modbus v1.8.0 → v1.9.0.** A request ends at `Config.Timeout` or its
+  context's deadline, whichever comes first; a context deadline used to
+  replace the timeout.
+  - `ReadModels`, `ReadAll`, `ReadModel`, `ReadPoint`, `Detect` and
+    `Discover` no longer let one device that never answers hold a request
+    for the caller's whole deadline.
+  - A caller that relied on a long context deadline to let a slow device
+    answer after `Timeout` must raise `Timeout` instead.
+
+### Tests
+
+- `TestReadModelsTimeoutStopsBatch` runs under a context with a deadline;
+  the client timeout ends the request that gets no answer.
+
+---
+
 ## v0.7.0
 
 **Date:** 2026-10-30
