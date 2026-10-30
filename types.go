@@ -155,6 +155,25 @@ func (d *Device) ModelByID(id uint16) *ModelInstance {
 	return nil
 }
 
+// ModelsByID returns every instance of the given model ID, in chain order,
+// or nil when the device does not expose that model. A device may expose a
+// model more than once, for example one model 160 per MPPT tracker set.
+//
+// The instances are copies: changing them does not change d.Discovery. Their
+// Schema is still shared with the registry and must not be modified.
+func (d *Device) ModelsByID(id uint16) []ModelInstance {
+	if d.Discovery == nil {
+		return nil
+	}
+	var out []ModelInstance
+	for _, m := range d.Discovery.Models {
+		if m.Header.ID == id {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // DiscoverOptions configures detection and discovery. A nil *DiscoverOptions
 // selects the defaults described on each field.
 type DiscoverOptions struct {
