@@ -1,5 +1,16 @@
 # go-sunspec Releases
 
+## v0.8.0
+
+**Date:** 2026-10-30
+**Previous release:** v0.7.1
+
+### Dependencies
+
+- `go-modbus` v1.9.0 → v1.10.0.
+
+---
+
 ## v0.7.1
 
 **Date:** 2026-10-30
