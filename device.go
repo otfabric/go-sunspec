@@ -71,6 +71,12 @@ func (d *Device) ReadModel(ctx context.Context, inst ModelInstance) (*DecodedMod
 	} else {
 		regs, err = readRange(ctx, d.Client, d.UnitID, inst.Header.StartAddress, int(inst.Header.Length)+2, d.RegType)
 	}
+	return decodeRead(inst, regs, err)
+}
+
+// decodeRead checks and decodes what was read of inst: regs holds its header
+// and data registers, or the part of them read before err.
+func decodeRead(inst ModelInstance, regs []uint16, err error) (*DecodedModel, error) {
 	// A successful read holds exactly the registers asked for; a short one is
 	// treated like a header that does not match.
 	total := int(inst.Header.Length) + 2

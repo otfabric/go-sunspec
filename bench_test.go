@@ -122,6 +122,15 @@ func BenchmarkReadAll(b *testing.B) {
 	})
 }
 
+// BenchmarkReadModels reads and decodes the whole chain with ReadModels,
+// adjacent models sharing requests. Compare with BenchmarkReadAll.
+func BenchmarkReadModels(b *testing.B) {
+	runE2E(b, func(ctx context.Context, dev *Device) error {
+		_, err := dev.ReadModels(ctx, dev.Discovery.Models)
+		return err
+	})
+}
+
 // BenchmarkReadModel reads and decodes the inverter model (103).
 func BenchmarkReadModel(b *testing.B) {
 	runE2E(b, func(ctx context.Context, dev *Device) error {

@@ -238,6 +238,9 @@ device, err := sunspec.Discover(ctx, client, &sunspec.DiscoverOptions{
 // Read all models at once.
 decoded, err := device.ReadAll(ctx)
 
+// The same, with adjacent models sharing requests: one result per model.
+results, err := device.ReadModels(ctx, device.Discovery.Models)
+
 // Read a specific model by ID.
 dm, err := device.ReadModelByID(ctx, 101)
 
@@ -527,6 +530,7 @@ go-sunspec/
 ├── decode_point.go    Per-type point decoders
 ├── decode_sf.go       Scale factor resolution
 ├── device.go          ReadAll, ReadModel, ReadModelByID, ReadPoint
+├── read_models.go     ReadModels (adjacent models in shared requests)
 ├── read.go            Batch register reader (>125 splitting)
 ├── encode.go          Values, EncodeModel(), DecodedModel.Values()
 ├── encode_point.go    Per-type point encoders
