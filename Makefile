@@ -1,4 +1,4 @@
-.PHONY: help all generate sync models-check build check test soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean
+.PHONY: help all generate sync models-check build check test bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -48,6 +48,12 @@ soak: ## Run the chaos and stress tests under the race detector for SOAKTIME eac
 	@echo "Soaking chaos and stress tests (SOAKTIME=$(SOAKTIME))"
 	@SUNSPEC_CHAOS_DURATION=$(SOAKTIME) SUNSPEC_STRESS_DURATION=$(SOAKTIME) \
 		go test -race -count=1 -timeout=0 -run 'Chaos|Stress' .
+
+# Duration each benchmark runs. Override with BENCHTIME=... (e.g. BENCHTIME=2s).
+BENCHTIME ?= 1s
+bench: ## Run the read benchmarks (requests/op, pdu-bytes/op, time, allocations)
+	@echo "Benchmarking (BENCHTIME=$(BENCHTIME))"
+	@go test -run='^$$' -bench=. -benchmem -benchtime=$(BENCHTIME) .
 
 coverage: ## Run tests with coverage profile and text summary
 	@echo "Running coverage on $(TEST_PKGS)"
