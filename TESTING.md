@@ -13,9 +13,10 @@ How to run each tier. No hardware is needed. What each layer is for, and how to 
 | Fuzz | `make fuzz` (`FUZZTIME`, default 30s) | none | yes, 10s per target |
 | Benchmarks | `make bench` (`BENCHTIME`) | none | no |
 | Cross-compile | `make cross` | none | no |
+| Interop | `make interop` (build tag `interop`) | Docker | yes, Interop workflow and daily |
 | Model drift | `make models-check` | network | weekly workflow, reports only |
 
-There is no interop tier, and `make interop` fails rather than report a pass: no independent implementation is in the test suite ([INTEROPERABILITY.md](INTEROPERABILITY.md), TEST-009 in [.otfabric/exceptions.yaml](.otfabric/exceptions.yaml)).
+`make interop` runs [`interop/`](interop/) against pysunspec2 in Docker ([INTEROPERABILITY.md](INTEROPERABILITY.md)). With `SUNSPEC_REQUIRE_INTEROP=1`, which `make interop` and the workflow set, missing Docker is a failure and not a skip. `SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE` replaces the pinned image.
 
 `make coverage-pkg-check` fails when one package is below `COVER_PKG_MIN` (90); CI runs it in the `coverage-packages` job.
 

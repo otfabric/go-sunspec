@@ -46,9 +46,8 @@ cross: ## Cross-compile without cgo for the supported platforms
 		CGO_ENABLED=0 GOOS=$${p%/*} GOARCH=$${p#*/} go build ./... || exit 1; \
 	done
 
-interop: ## No suite: no harness packages an independent SunSpec stack, so this fails rather than report a pass (see INTEROPERABILITY.md)
-	@echo "no interop suite: no harness packages an independent SunSpec stack; see INTEROPERABILITY.md"
-	@exit 1
+interop: ## Interop suite against pysunspec2 (otfabric/sunspec-interop; Docker)
+	@SUNSPEC_REQUIRE_INTEROP=1 go test -count=1 -tags interop -timeout 15m $(INTEROP_TESTFLAGS) ./interop/...
 
 e2e: ## End-to-end suite: the served device read through the client path over loopback TCP
 	@go test -count=1 -race -run '^(TestE2E|TestIntegration)' .

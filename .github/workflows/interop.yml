@@ -1,0 +1,59 @@
+name: Interop
+run-name: "Interop (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
+
+# Runs go-sunspec against pysunspec2, the SunSpec Alliance's Python stack, as
+# otfabric/sunspec-interop publishes it. The image is consumed by digest
+# (interop/interop_test.go): nothing of sunspec-interop is cloned or built here.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: "off"
+  # Keep in step with interop/interop_test.go (TestWorkflowPin).
+  SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE: ghcr.io/otfabric/sunspec-interop-pysunspec2:v0.1.0@sha256:4e7cae22cff30b282966cbf1c777016286b623afecba85030011040cb86c4a17
+
+concurrency:
+  group: interop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  interop:
+    name: pysunspec2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Pull the image
+        run: |
+          for attempt in 1 2 3 4 5; do
+            docker pull --quiet "${SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE}" && break
+            [[ "${attempt}" == 5 ]] && exit 1
+            sleep $((attempt * 15))
+          done
+          docker run --rm "${SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE}" version | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Run the interop suite
+        run: |
+          set -o pipefail
+          mkdir -p artifacts
+          make interop INTEROP_TESTFLAGS=-v 2>&1 | tee artifacts/interop.log
+          grep -E -- '^ *--- (PASS|FAIL|SKIP)' artifacts/interop.log | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload the log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: interop
+          path: artifacts/
+          if-no-files-found: ignore
