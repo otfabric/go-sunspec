@@ -35,11 +35,12 @@ const (
 )
 
 const (
-	imageEnv     = "SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE"
-	requireEnv   = "SUNSPEC_REQUIRE_INTEROP"
-	hostGateway  = "host.docker.internal"
-	addHost      = hostGateway + ":host-gateway"
-	relTolerance = 1e-6
+	imageEnv      = "SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE"
+	requireEnv    = "SUNSPEC_REQUIRE_INTEROP"
+	containerPort = 1502
+	hostGateway   = "host.docker.internal"
+	addHost       = hostGateway + ":host-gateway"
+	relTolerance  = 1e-6
 )
 
 var fixtures = []string{"baseline", "edge", "altbase"}
@@ -150,9 +151,10 @@ func peerClient(t *testing.T, into any, op, host string, port int, unit uint8, f
 	return code
 }
 
-// startDevice runs the image's device on a fixture and returns its port on
-// this machine.
-func startDevice(t *testing.T, fixture string) int {
+// startDevice runs the image's device on a fixture. It returns its address on
+// the Docker network, where another container reaches it on containerPort, and
+// its port on this machine.
+func startDevice(t *testing.T, fixture string) (string, int) {
 	t.Helper()
 	out, stderr, err := docker("run", "-d", "--rm", "-p", "127.0.0.1::1502", image(), "server", "--fixture", "/fixtures/"+fixture+"/fixture.json")
 	if err != nil {
@@ -175,6 +177,10 @@ func startDevice(t *testing.T, fixture string) int {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	ip, stderr, err := docker("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", id)
+	if err != nil {
+		t.Fatalf("docker inspect: %v: %s", err, stderr)
+	}
 	out, stderr, err = docker("port", id, "1502/tcp")
 	if err != nil {
 		t.Fatalf("docker port: %v: %s", err, stderr)
@@ -188,7 +194,7 @@ func startDevice(t *testing.T, fixture string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return port
+	return strings.TrimSpace(ip), port
 }
 
 // startServer serves srv on every address, so that a container reaches it.
@@ -404,9 +410,9 @@ func TestGoReadsPysunspec2Device(t *testing.T) {
 	for _, name := range fixtures {
 		t.Run(name, func(t *testing.T) {
 			fx := loadFixture(t, name)
-			port := startDevice(t, name)
+			ip, port := startDevice(t, name)
 			var scan peerScan
-			if code := peerClient(t, &scan, "scan", hostGateway, port, fx.UnitID); code != 0 {
+			if code := peerClient(t, &scan, "scan", ip, containerPort, fx.UnitID); code != 0 {
 				t.Fatalf("pysunspec2 scan: exit %d", code)
 			}
 			if scan.BaseAddress != fx.BaseAddress {
@@ -425,9 +431,9 @@ func TestPysunspec2ReadsGoServer(t *testing.T) {
 	for _, name := range fixtures {
 		t.Run(name, func(t *testing.T) {
 			fx := loadFixture(t, name)
-			device := startDevice(t, name)
+			ip, _ := startDevice(t, name)
 			var want peerScan
-			if code := peerClient(t, &want, "scan", hostGateway, device, fx.UnitID); code != 0 {
+			if code := peerClient(t, &want, "scan", ip, containerPort, fx.UnitID); code != 0 {
 				t.Fatalf("pysunspec2 scan of its own device: exit %d", code)
 			}
 			srv := servedFrom(t, fx, &want)
@@ -481,9 +487,9 @@ func TestPysunspec2WritesGoServer(t *testing.T) {
 		value = 750
 	)
 	fx := loadFixture(t, "baseline")
-	device := startDevice(t, "baseline")
+	ip, _ := startDevice(t, "baseline")
 	var want peerScan
-	if code := peerClient(t, &want, "scan", hostGateway, device, fx.UnitID); code != 0 {
+	if code := peerClient(t, &want, "scan", ip, containerPort, fx.UnitID); code != 0 {
 		t.Fatalf("pysunspec2 scan: exit %d", code)
 	}
 	srv := servedFrom(t, fx, &want)
