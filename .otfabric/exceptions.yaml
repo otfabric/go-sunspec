@@ -1,16 +1,2 @@
 # Recorded exceptions to otfabric/engineering rules (docs/exceptions/ there).
-exceptions:
-  - rule: TEST-009
-    scope: repository
-    justification: >-
-      An independent SunSpec stack exists (the SunSpec Alliance's pysunspec2),
-      but no OT Fabric harness packages it: modbus-interop covers Modbus only
-      and no sunspec-interop repository exists. A suite here needs that
-      harness: a digest-pinned image with a pysunspec2 client and device
-      simulator following the interop container contract, and released
-      versions.yaml and results. Until then INTEROPERABILITY.md and
-      LIMITATIONS.md state that no independent implementation is in the tests.
-    owner: bartvanbos
-    reviewed: "2026-10-31"
-    reconsider: "when a sunspec-interop harness with pysunspec2 is released"
-    ref: INTEROPERABILITY.md
+exceptions: []

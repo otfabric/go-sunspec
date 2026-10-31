@@ -1,5 +1,17 @@
 # go-sunspec Releases
 
+## v0.8.2
+
+**Date:** 2026-10-31
+**Previous release:** v0.8.1
+
+### Changed
+
+- Tests, CI and documents only. New interop suite against pysunspec2 1.3.7 (otfabric/sunspec-interop v0.1.0): go-sunspec reads a pysunspec2 device, and pysunspec2 reads and writes `Server`. The two agree on every point of the fixtures and on the encoded registers. `make interop` now runs this suite.
+- The exception to TEST-009 is removed.
+
+---
+
 ## v0.8.1
 
 **Date:** 2026-10-31
