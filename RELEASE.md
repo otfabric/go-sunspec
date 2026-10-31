@@ -1,5 +1,17 @@
 # go-sunspec Releases
 
+## v0.8.1
+
+**Date:** 2026-10-31
+**Previous release:** v0.8.0
+
+### Changed
+
+- Policy 1.2: build output in `bin/` and `release/`, a per-package coverage floor, and more tests and CI. No change in behaviour.
+- Built on go-modbus v1.10.3, go-serial v0.2.1.
+
+---
+
 ## v0.8.0
 
 **Date:** 2026-10-30
