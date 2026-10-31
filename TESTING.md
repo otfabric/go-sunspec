@@ -15,7 +15,9 @@ How to run each tier. No hardware is needed. What each layer is for, and how to 
 | Cross-compile | `make cross` | none | no |
 | Model drift | `make models-check` | network | weekly workflow, reports only |
 
-There is no interop tier: no independent implementation is in the test suite ([INTEROPERABILITY.md](INTEROPERABILITY.md)).
+There is no interop tier, and `make interop` fails rather than report a pass: no independent implementation is in the test suite ([INTEROPERABILITY.md](INTEROPERABILITY.md), TEST-009 in [.otfabric/exceptions.yaml](.otfabric/exceptions.yaml)).
+
+`make coverage-pkg-check` fails when one package is below `COVER_PKG_MIN` (90); CI runs it in the `coverage-packages` job.
 
 The end-to-end tier reads the library's own `Server`, behind a real go-modbus TCP server on loopback, through the public client path. `e2e_test.go` starts with the feature-to-test matrix.
 

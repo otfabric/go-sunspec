@@ -1,4 +1,4 @@
-.PHONY: help all generate generate-check sync models-check build check test fuzz bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean cross e2e
+.PHONY: help all generate generate-check sync models-check build check test fuzz bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean cross e2e interop coverage-pkg-check
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -18,6 +18,8 @@ GOFMT_CI = $(shell GOTOOLCHAIN=go$(GO_MOD_VERSION).0 go env GOROOT)/bin/gofmt
 # Packages measured by the coverage gate: everything, as in CI.
 TEST_PKGS     := ./...
 COVERAGE_MIN  := 90
+# Per-package floor (TEST-012): what the weakest package measures now, rounded down.
+COVER_PKG_MIN := 90
 
 all: check build ## Run all checks and build the library
 
@@ -44,10 +46,19 @@ cross: ## Cross-compile without cgo for the supported platforms
 		CGO_ENABLED=0 GOOS=$${p%/*} GOARCH=$${p#*/} go build ./... || exit 1; \
 	done
 
+interop: ## No suite: no harness packages an independent SunSpec stack, so this fails rather than report a pass (see INTEROPERABILITY.md)
+	@echo "no interop suite: no harness packages an independent SunSpec stack; see INTEROPERABILITY.md"
+	@exit 1
+
 e2e: ## End-to-end suite: the served device read through the client path over loopback TCP
 	@go test -count=1 -race -run '^(TestE2E|TestIntegration)' .
 
-check: fmt fmt-check vet lint lint-ci vuln test coverage-check ## Run all checks (format, vet, lint, test, coverage)
+coverage-pkg-check: coverage-check ## Fail when a package is below COVER_PKG_MIN
+	@awk -v m="$(COVER_PKG_MIN)" 'NR > 1 { n[$$1] = $$2; if ($$3 > 0) h[$$1] = 1 } \
+	END { for (k in n) { p = k; sub(/\/[^\/]*$$/, "", p); s[p] += n[k]; if (k in h) c[p] += n[k] } \
+	for (p in s) { v = 100 * c[p] / s[p]; if (v < m) { printf "%s: %.1f%% < %s%%\n", p, v, m; bad = 1 } } exit bad }' coverage.out
+
+check: fmt fmt-check vet lint lint-ci vuln test coverage-pkg-check ## Run all checks (format, vet, lint, test, coverage)
 
 test: ## Run unit and integration tests with race detector
 	@echo "Running tests (race detector)"
