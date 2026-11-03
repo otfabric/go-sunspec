@@ -1,5 +1,16 @@
 # go-sunspec Releases
 
+## v0.8.5
+
+**Date:** 2026-11-03
+**Previous release:** v0.8.4
+
+### Changed
+
+- Same code as v0.8.4: the release workflow was dispatched twice for the same commit.
+
+---
+
 ## v0.8.4
 
 **Date:** 2026-11-03
