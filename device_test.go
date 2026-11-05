@@ -5,6 +5,7 @@ package sunspec
 import (
 	"context"
 	"errors"
+	"maps"
 	"net"
 	"reflect"
 	"strings"
@@ -191,7 +192,7 @@ func TestNilClientIsAnErrorNotAPanic(t *testing.T) {
 func TestReadRegistersChunking(t *testing.T) {
 	const base = 1000
 	h := &testutil.SunSpecHandler{UnitID: 1, Registers: map[uint16]uint16{}}
-	for i := 0; i < 400; i++ {
+	for i := range 400 {
 		h.Registers[uint16(base+i)] = uint16(i + 1)
 	}
 	client := serve(t, h)
@@ -222,7 +223,7 @@ func TestReadRegistersChunking(t *testing.T) {
 func TestReadRegistersPartialRead(t *testing.T) {
 	const base = 1000
 	h := &testutil.SunSpecHandler{UnitID: 1, Registers: map[uint16]uint16{}}
-	for i := 0; i < 300; i++ {
+	for i := range 300 {
 		h.Registers[uint16(base+i)] = uint16(i + 1)
 	}
 	client := serve(t, h)
@@ -269,10 +270,10 @@ func TestReadRegistersPartialRead(t *testing.T) {
 func TestReadRegistersRejectsAddressSpaceOverflow(t *testing.T) {
 	const start = 65536 - 125
 	h := &testutil.SunSpecHandler{UnitID: 1, Registers: map[uint16]uint16{}}
-	for i := 0; i < 125; i++ {
+	for i := range 125 {
 		h.Registers[uint16(start+i)] = 0xAAAA
 	}
-	for i := 0; i < 125; i++ {
+	for i := range 125 {
 		h.Registers[uint16(i)] = 0xBBBB
 	}
 	client := serve(t, h)
@@ -579,9 +580,7 @@ func TestDiscoverErrors(t *testing.T) {
 		h := &testutil.SunSpecHandler{UnitID: 1, Registers: map[uint16]uint16{
 			base: gmsunspec.MarkerReg0, base + 1: gmsunspec.MarkerReg1,
 		}}
-		for k, v := range extra {
-			h.Registers[k] = v
-		}
+		maps.Copy(h.Registers, extra)
 		return h
 	}
 

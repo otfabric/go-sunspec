@@ -246,7 +246,7 @@ func decodeIPv6Addr(regs []uint16) string {
 		return ""
 	}
 	buf := make([]byte, 16)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		binary.BigEndian.PutUint16(buf[i*2:], regs[i])
 	}
 	ip := net.IP(buf)
@@ -262,7 +262,7 @@ func decodeEUI48(regs []uint16) string {
 		return ""
 	}
 	buf := make([]byte, 6)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		binary.BigEndian.PutUint16(buf[i*2:], regs[i+1])
 	}
 	return net.HardwareAddr(buf).String()

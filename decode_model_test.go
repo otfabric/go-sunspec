@@ -542,7 +542,7 @@ func TestApplySFWithoutScope(t *testing.T) {
 
 func TestApplyScaleAllNumericTypes(t *testing.T) {
 	tests := []struct {
-		raw  interface{}
+		raw  any
 		want float64
 	}{
 		{int16(-4), -400}, {uint16(4), 400},
@@ -557,7 +557,7 @@ func TestApplyScaleAllNumericTypes(t *testing.T) {
 			t.Errorf("%T: ScaledValue = %v, want %g", tc.raw, dp.ScaledValue, tc.want)
 		}
 	}
-	for _, raw := range []interface{}{"text", []uint16{1}, nil} {
+	for _, raw := range []any{"text", []uint16{1}, nil} {
 		dp := DecodedPoint{RawValue: raw}
 		applyScale(&dp, 2)
 		if dp.ScaledValue != nil {

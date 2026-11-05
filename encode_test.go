@@ -387,7 +387,7 @@ func TestEncodeModelGroupsAndCounts(t *testing.T) {
 		}, ErrValueOutOfRange, "curves/Fix[2]", "A"},
 		{"model too long", func() *Values {
 			v := &Values{}
-			for i := 0; i < 33000; i++ {
+			for range 33000 {
 				v.Add("Rep", nil)
 			}
 			return v

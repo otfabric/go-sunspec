@@ -74,7 +74,7 @@ type decoder struct {
 	warnings []string
 }
 
-func (d *decoder) warnf(format string, args ...interface{}) {
+func (d *decoder) warnf(format string, args ...any) {
 	d.warnings = append(d.warnings, fmt.Sprintf(format, args...))
 }
 

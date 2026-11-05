@@ -1,6 +1,6 @@
 module github.com/otfabric/go-sunspec
 
-go 1.23
+go 1.26.0
 
 require (
 	github.com/otfabric/go-modbus v1.10.6

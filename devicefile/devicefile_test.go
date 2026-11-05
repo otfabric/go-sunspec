@@ -693,7 +693,7 @@ func TestGroupValues(t *testing.T) {
 	if hz, ok := v.Points["Hz"]; !ok || hz != nil {
 		t.Errorf("null point = %v, %v", hz, ok)
 	}
-	v, err = (&Group{Points: Points{{Name: "Evt1", Value: []interface{}{}}}}).Values()
+	v, err = (&Group{Points: Points{{Name: "Evt1", Value: []any{}}}}).Values()
 	if err != nil || !reflect.DeepEqual(v.Points["Evt1"], []string{}) {
 		t.Errorf("empty list = %+v, %v", v, err)
 	}

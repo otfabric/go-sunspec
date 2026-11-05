@@ -141,7 +141,7 @@ type DecodedPoint struct {
 	// (uint64, acc64, bitfield64), float32, float64, string (string, ipaddr,
 	// ipv6addr, eui48), or []uint16 holding a copy of the raw registers for
 	// an unsupported type or a point with too few registers.
-	RawValue interface{}
+	RawValue any
 	// ScaledValue is RawValue multiplied by 10^SFRawValue. It is nil when the
 	// point has no scale factor, is not implemented, is not numeric, or its
 	// scale factor could not be resolved.

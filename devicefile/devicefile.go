@@ -68,7 +68,7 @@ type Point struct {
 	// with UseNumber: a json.Number, a string, a []interface{}, nil, a bool
 	// or a map. For writing it is any value json.Marshal accepts. Nil stands
 	// for a point that is not implemented.
-	Value interface{}
+	Value any
 }
 
 // Points is the list of point values of a group instance. In JSON it is one
@@ -127,7 +127,7 @@ func (l *Points) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("point %s is given twice", name)
 		}
 		seen[name] = true
-		var value interface{}
+		var value any
 		if err := dec.Decode(&value); err != nil {
 			return err
 		}

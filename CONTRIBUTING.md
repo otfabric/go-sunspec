@@ -19,7 +19,7 @@ Thank you for your interest in contributing to `go-sunspec`! This document cover
 
 ### Prerequisites
 
-- Go 1.23+ (see [go.mod](go.mod)); the code must build and pass on Go 1.23, so do not use newer language or standard-library features
+- Go 1.26+ (see [go.mod](go.mod)); the code must build and pass on Go 1.26, so do not use newer language or standard-library features
 - [staticcheck](https://staticcheck.dev/), [golangci-lint](https://golangci-lint.run/) and [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) for the checks
 - `curl`, `jq` and `git` for the model scripts
 - No hardware: tests use the SunSpec fixture server in [`testutil`](testutil/)
@@ -88,7 +88,7 @@ Examples:
 - Add tests for new functionality in the appropriate `_test.go` file; the repository uses only the standard `testing` package
 - Use the package's own `Server` (see `newServed` in `harness_test.go`) or [`testutil`](testutil/) for anything that talks to a device: both serve a SunSpec model chain over Modbus TCP
 - Assert behaviour: decoded values, scale factors, the specific error — not just that the code ran
-- Keep tests fast, deterministic and race-clean; CI runs them with `-race` on every Go version from 1.23 and a 120 s per-package timeout
+- Keep tests fast, deterministic and race-clean; CI runs them with `-race` on Go 1.26 and 1.27 and a 120 s per-package timeout
 - Coverage is enforced by `make check` and by CI (minimum 90 %); new code should come with tests
 - If your change affects what is read from a device, verify against real hardware when possible and say which device in the pull request
 

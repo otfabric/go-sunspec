@@ -345,7 +345,7 @@ func TestApplyScaleTypes(t *testing.T) {
 	const sf int16 = -1
 	cases := []struct {
 		name string
-		raw  interface{}
+		raw  any
 		want float64
 	}{
 		{"int16", int16(100), 10},

@@ -54,7 +54,7 @@ var stressInverterPoints = []string{"A", "AphA", "AphB", "AphC", "PPVphAB", "PhV
 func newStressServer(t testing.TB) *Server {
 	t.Helper()
 	mppt := (&Values{}).Set("DCA_SF", 0).Set("DCV_SF", 0).Set("DCW_SF", 0).Set("N", stressModules)
-	for i := 0; i < stressModules; i++ {
+	for i := range stressModules {
 		mppt.Add("module", (&Values{}).Set("ID", i+1))
 	}
 	srv, err := NewServer(&ServerOptions{BaseAddress: 40000},
@@ -229,9 +229,7 @@ func (r *stressRun) running() bool { return r.ctx.Err() == nil && !r.failed.Load
 // updaters starts one goroutine per model that writes ascending generations.
 func (r *stressRun) updaters() {
 	for model := stressInverter; model <= stressLong; model++ {
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
+		r.wg.Go(func() {
 			for gen := 2; r.running(); gen++ {
 				if gen > 30000 {
 					return
@@ -254,16 +252,14 @@ func (r *stressRun) updaters() {
 				}
 				time.Sleep(r.pace)
 			}
-		}()
+		})
 	}
 }
 
 // reader discovers and reads through client until the run ends. tolerate
 // says whether read errors are expected (the server is being restarted).
 func (r *stressRun) reader(client *modbus.Client, seed int64, tolerate bool) {
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
+	r.wg.Go(func() {
 		rng := rand.New(rand.NewSource(seed))
 		last := make([]int, stressModels)
 		layout := r.srv.Models()
@@ -342,15 +338,13 @@ func (r *stressRun) reader(client *modbus.Client, seed int64, tolerate bool) {
 			cancel()
 			r.reads.Add(1)
 		}
-	}()
+	})
 }
 
 // writer writes ascending pairs to the two writable points it owns and reads
 // each back. id tells the writers apart: each owns the value range id*1000.
 func (r *stressRun) writer(client *modbus.Client, tolerate bool) {
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
+	r.wg.Go(func() {
 		addr := r.srv.Models()[stressControls].StartAddress + 2
 		for v := uint16(2); r.running(); v++ {
 			if v > 60000 {
@@ -383,7 +377,7 @@ func (r *stressRun) writer(client *modbus.Client, tolerate bool) {
 			r.writes.Add(1)
 			time.Sleep(r.pace)
 		}
-	}()
+	})
 }
 
 func stressDuration(t testing.TB) time.Duration {
@@ -395,10 +389,7 @@ func stressDuration(t testing.TB) time.Duration {
 func newStressRun(t testing.TB, srv *Server) (*stressRun, context.CancelFunc) {
 	d := stressDuration(t)
 	ctx, cancel := context.WithTimeout(context.Background(), d)
-	pace := d / 25000
-	if pace < 50*time.Microsecond {
-		pace = 50 * time.Microsecond
-	}
+	pace := max(d/25000, 50*time.Microsecond)
 	return &stressRun{t: t, srv: srv, ctx: ctx, pace: pace}, cancel
 }
 
@@ -435,10 +426,10 @@ func runStress(t *testing.T, clients, readersPerClient, maxConns int) {
 	defer cancel()
 
 	var all []*modbus.Client
-	for c := 0; c < clients; c++ {
+	for c := range clients {
 		client := stressClient(t, addr, maxConns)
 		all = append(all, client)
-		for g := 0; g < readersPerClient; g++ {
+		for g := range readersPerClient {
 			run.reader(client, seed+int64(c*100+g), false)
 		}
 	}
@@ -490,7 +481,7 @@ func TestStressServerRestart(t *testing.T) {
 	defer cancel()
 
 	var all []*modbus.Client
-	for c := 0; c < 6; c++ {
+	for c := range 6 {
 		client, err := modbus.New(modbus.Config{
 			URL: "tcp://" + addr, Timeout: 500 * time.Millisecond, DialTimeout: 500 * time.Millisecond, MaxConns: 1 + c%2, Logger: modbus.NopLogger(),
 		})
@@ -518,7 +509,7 @@ func TestStressServerRestart(t *testing.T) {
 		// The port was just released by this server; another process may
 		// take it, but not for long.
 		var startErr error
-		for attempt := 0; attempt < 100; attempt++ {
+		for range 100 {
 			if startErr = ms.Start(); startErr == nil {
 				break
 			}
@@ -573,9 +564,7 @@ func TestStressServeCycles(t *testing.T) {
 	stop := make(chan struct{})
 	var readerDone sync.WaitGroup
 	var ok atomic.Int64
-	readerDone.Add(1)
-	go func() {
-		defer readerDone.Done()
+	readerDone.Go(func() {
 		client, err := modbus.New(modbus.Config{URL: "tcp://" + addr, Timeout: 300 * time.Millisecond, DialTimeout: 300 * time.Millisecond, Logger: modbus.NopLogger()})
 		if err != nil {
 			t.Errorf("modbus.New: %v", err)
@@ -611,7 +600,7 @@ func TestStressServeCycles(t *testing.T) {
 			}
 			cancel()
 		}
-	}()
+	})
 
 	cycles := 0
 	for time.Now().Before(deadline) {

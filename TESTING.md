@@ -6,7 +6,7 @@ How to run each tier. No hardware is needed. What each layer is for, and how to 
 
 | Tier | Command | Prerequisites | In CI |
 |---|---|---|---|
-| Unit, round trip | `make test` | none | yes, Go 1.23 to 1.26, with `-race` |
+| Unit, round trip | `make test` | none | yes, Go 1.26 and 1.27, with `-race` |
 | End-to-end | `make e2e` (`TestE2E*`, `TestIntegration*`) | none | yes, as part of the package tests |
 | Chaos, stress | part of `make test` | none | yes, for a second or two each |
 | Soak | `make soak` | none | no |

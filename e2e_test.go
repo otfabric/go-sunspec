@@ -287,10 +287,7 @@ func TestE2EReadAllRegistryModels(t *testing.T) {
 	const perDevice = 40
 	points, long := 0, 0
 	for start, seed := 0, int64(100); start < len(ids); start, seed = start+perDevice, seed+1 {
-		end := start + perDevice
-		if end > len(ids) {
-			end = len(ids)
-		}
+		end := min(start+perDevice, len(ids))
 		d := newServed(t, seed, &ServerOptions{BaseAddress: 0}, ids[start:end]...)
 		client := e2eStart(t, d.srv)
 		dev, err := Discover(ctx, client, nil)
@@ -363,7 +360,7 @@ func TestE2ENestedGroups(t *testing.T) {
 	// DER volt-var (705): curves holding points, both counted by points of
 	// the top-level group, with scale factors two levels up.
 	vv := (&Values{}).Set("Ena", 1).Set("V_SF", -2).Set("DeptRef_SF", -1).Set("NPt", 3)
-	for c := 0; c < 2; c++ {
+	for c := range 2 {
 		crv := vv.Add("Crv", (&Values{}).Set("ActPt", 2).Set("ReadOnly", "RW"))
 		crv.Add("Pt", (&Values{}).Set("V", 0.92+float64(c)).Set("Var", 30.0))
 		crv.Add("Pt", (&Values{}).Set("V", 1.08+float64(c)).Set("Var", -30.0))

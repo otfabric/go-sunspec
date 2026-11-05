@@ -42,10 +42,7 @@ func readRange(ctx context.Context, client *modbus.Client, unitID uint8, addr ui
 	offset := 0
 
 	for remaining > 0 {
-		chunk := remaining
-		if chunk > maxRegistersPerRead {
-			chunk = maxRegistersPerRead
-		}
+		chunk := min(remaining, maxRegistersPerRead)
 		regs, err := client.ReadRegisters(ctx, unitID, uint16(int(addr)+offset), uint16(chunk), regType)
 		if err != nil {
 			return result, fmt.Errorf("%w: read at %d+%d: %w", ErrPartialRead, addr, offset, err)

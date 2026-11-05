@@ -33,7 +33,7 @@ func TestDecodedPoint_MarshalJSON_NonFiniteAsNull(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Both the value and a pointer must use the custom encoding.
-			for _, v := range []interface{}{tc.point, &tc.point} {
+			for _, v := range []any{tc.point, &tc.point} {
 				b, err := json.Marshal(v)
 				if err != nil {
 					t.Fatalf("Marshal: %v", err)
@@ -80,7 +80,7 @@ func TestDecodedModel_JSONWithUnimplementedFloats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a model with %d unimplemented float points does not encode: %v", nan, err)
 	}
-	var back map[string]interface{}
+	var back map[string]any
 	if err := json.Unmarshal(b, &back); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}

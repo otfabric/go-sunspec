@@ -51,7 +51,7 @@ type PointDef struct {
 	Access    string      `json:"access"`
 	Mandatory string      `json:"mandatory"`
 	Static    string      `json:"static"`
-	Value     interface{} `json:"value"`
+	Value     any         `json:"value"`
 	Symbols   []SymbolDef `json:"symbols"`
 }
 

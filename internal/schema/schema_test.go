@@ -397,8 +397,7 @@ func TestParseFileErrorsWrapCause(t *testing.T) {
 
 	dir := writeFiles(t, map[string]string{"model_1.json": `{"group": 5}`})
 	_, err = parseFile(filepath.Join(dir, "model_1.json"), "model_1.json")
-	var typeErr *json.UnmarshalTypeError
-	if !errors.As(err, &typeErr) {
+	if _, ok := errors.AsType[*json.UnmarshalTypeError](err); !ok {
 		t.Errorf("err = %v, want it to wrap *json.UnmarshalTypeError", err)
 	}
 }

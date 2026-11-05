@@ -135,8 +135,7 @@ func itemModel(inst ModelInstance, ir batch.ItemResult) (*DecodedModel, error) {
 		return nil, fmt.Errorf("sunspec: model %d at address %d: %w", inst.Header.ID, inst.Header.StartAddress, ir.Err)
 	default:
 		err := ir.Err
-		var we *batch.WindowError
-		if errors.As(err, &we) {
+		if we, ok := errors.AsType[*batch.WindowError](err); ok {
 			err = we.Err
 		}
 		// As readRange: a model needing several requests reports a failure

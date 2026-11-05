@@ -92,7 +92,7 @@ func TestServerLayout(t *testing.T) {
 		t.Fatalf("whole map = %v, %v\nwant %v", got, err, want)
 	}
 	// Every sub-range is served; every range that leaves the map is not.
-	for lo := 0; lo < len(want); lo++ {
+	for lo := range want {
 		for hi := lo + 1; hi <= len(want); hi++ {
 			got, err := holdingRead(srv, uint16(40000+lo), uint16(hi-lo))
 			if err != nil || !reflect.DeepEqual(got, want[lo:hi]) {
@@ -607,7 +607,7 @@ func dial(t testing.TB, addr string, timeout time.Duration) *modbus.Client {
 		t.Fatalf("modbus.New: %v", err)
 	}
 	var openErr error
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if openErr = client.Open(); openErr == nil {
 			break
 		}

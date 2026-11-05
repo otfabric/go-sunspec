@@ -17,7 +17,7 @@ func TestEncodeDecodeRoundTripAllModels(t *testing.T) {
 	points, repeated := 0, 0
 	for _, id := range registryIDs() {
 		meta := registry.ByID(id)
-		for round := int64(0); round < 8; round++ {
+		for round := range int64(8) {
 			gen := newGenerator(int64(id)*100 + round)
 			g := gen.model(meta)
 			regs, err := EncodeModel(meta, g.vals)

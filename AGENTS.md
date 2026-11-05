@@ -24,7 +24,7 @@ This repository follows **otfabric/engineering policy 1.2**, profile **protocol-
 1. Never lower the coverage minimum (90, `COVERAGE_MIN` in the Makefile and `coverage-min` in CI), add lint suppressions, or skip/delete tests to make CI pass. Never weaken a chaos, stress or fuzz invariant to get a green run: find out whether the library, go-modbus or the test is wrong.
 2. Never edit `models/` or `registry/models_gen.go` by hand. Change the generator in `internal/gen`, or run `make sync`.
 3. The client side stays read-only: `Detect`, `Discover` and `Device` send function codes 03 and 04 only (`ReadFunctionCodes`).
-4. Code must build and pass on Go 1.23 (go.mod). No newer language or standard-library features.
+4. Code must build and pass on Go 1.26 (go.mod). No newer language or standard-library features.
 5. Exported API changes break sunspecctl: this library stays on v0 or v1, and a breaking change is called out in RELEASE.md.
 6. No new runtime dependency without an ADR. `santhosh-tekuri/jsonschema` is a test dependency only.
 7. Never invent SunSpec semantics or device-compatibility claims; cite the model definition or record the evidence.
