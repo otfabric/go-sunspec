@@ -8,7 +8,24 @@
 ### Changed
 
 - Go 1.26 or later is required (was 1.23); CI runs Go 1.26 and 1.27. `go fix` modernised the code; no API changes.
-- Built on go-modbus v1.11.0: the server closes a connection whose response cannot be written in time; RTU and ASCII links drain a late answer instead of returning it for the next request; RTU variable-length reads honour the deadline; UDP drops bytes left over from a previous datagram.
+- Built on go-modbus v1.11.1: the server closes a connection whose response cannot be written in time; RTU and ASCII links drain a late answer instead of returning it for the next request; RTU variable-length reads honour the deadline; UDP drops bytes left over from a previous datagram.
+- A scale factor outside -10..10 (the `sunssf` range of the SunSpec information model) is no longer applied: the point is returned unscaled with nil `ScaledValue` and `SFRawValue`, and the model gets a warning. Before, such a scale factor from a device turned values into +Inf or 0, or NaN for a raw 0 while still marked implemented.
+- `EncodeModel`, `NewServer`, the `Server` update methods and device files refuse a numeric `sunssf` value outside -10..10 with `ErrValueOutOfRange`. A scale factor given as raw registers is stored as given and not applied, so the point is stored unscaled (before, it was stored as round(value / 10^sf), e.g. 0).
+- `devicefile.Load` refuses a path that is not a regular file (directory, device such as `/dev/zero`, named pipe, socket) with `devicefile.ErrNotRegular`, and a file longer than `devicefile.MaxFileSize` (16 MiB) with `devicefile.ErrTooLarge`. A symbolic link to a regular file is still followed. Before, any path was read whole.
+- `devicefile.File.WriteFile` writes a 0600 temporary file next to the destination, syncs it and renames it into place, so a failed write keeps the existing file. It refuses a destination that is a symbolic link (also a dangling one) or another non-regular file with `devicefile.ErrNotRegular`. Before, it followed links, truncated before writing and created files with mode 0644.
+
+### Added
+
+- `devicefile.MaxFileSize`, `devicefile.ErrTooLarge`, `devicefile.ErrNotRegular`.
+
+### Fixed
+
+- A literal scale factor in a schema outside -10..10, or outside int16, was truncated ("70000" became 4464); it is now not applied.
+- An enum symbol whose schema value exceeds 32 bits no longer matches the truncated raw value.
+
+### Tests
+
+- Hostile-device tests (markers, model chains, lengths, scale factors over the wire, slow and dropping devices, with leak checks), hostile server requests, and the fuzz targets `FuzzDiscover` and `FuzzServerRequest`. A static scan finds no unchecked integer conversion or unsafe file access.
 
 ---
 

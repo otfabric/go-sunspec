@@ -71,7 +71,7 @@ type number struct {
 func intNumber(v int64) number {
 	if v < 0 {
 		// -v overflows for the minimum; the unsigned negation does not.
-		return number{isInt: true, neg: true, mag: -uint64(v)}
+		return number{isInt: true, neg: true, mag: magnitude(v)}
 	}
 	return number{isInt: true, mag: uint64(v)}
 }
@@ -126,16 +126,6 @@ func toNumber(val any) (n number, ok bool) {
 		}
 	}
 	return number{}, false
-}
-
-// literalSF parses a scale factor reference that is a literal exponent, the
-// way the decoder recognises one.
-func literalSF(ref string) (int16, bool) {
-	lit, err := strconv.Atoi(ref)
-	if err != nil {
-		return 0, false
-	}
-	return int16(lit), true
 }
 
 // unscale converts an engineering value to the raw value for the scale factor
@@ -207,7 +197,7 @@ func (n number) String() string {
 // putUint writes the low bits of v into dst, most significant register first.
 func putUint(dst []uint16, v uint64, bits int) {
 	for i := 0; i < bits/16; i++ {
-		dst[i] = uint16(v >> uint(bits-16*(i+1)))
+		dst[i] = uint16(v >> uint(bits-16*(i+1)) & math.MaxUint16)
 	}
 }
 
@@ -240,6 +230,11 @@ func encodeValue(pm *registry.PointMeta, val any, sf *int16) ([]uint16, error) {
 		pattern, err := rawInt(n, sf, spec)
 		if err != nil {
 			return nil, err
+		}
+		if pm.Type == "sunssf" {
+			if v := uint16ToInt16(uint16(pattern & math.MaxUint16)); !validScaleFactor(v) {
+				return nil, fmt.Errorf("scale factor %d is outside %d..%d: %w", v, minScaleFactor, maxScaleFactor, ErrValueOutOfRange)
+			}
 		}
 		putUint(dst, pattern, spec.bits)
 		return dst, nil

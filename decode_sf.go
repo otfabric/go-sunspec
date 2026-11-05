@@ -3,9 +3,36 @@
 package sunspec
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 )
+
+// The range of a scale factor exponent: the SunSpec information model
+// specification gives sunssf the range -10 to 10. A device that reports a
+// value outside it has no usable scale factor; applying one such as 10^400
+// would turn every measurement into an infinity, zero or NaN.
+const (
+	minScaleFactor = -10
+	maxScaleFactor = 10
+)
+
+// validScaleFactor reports whether sf is a scale factor exponent SunSpec
+// allows.
+func validScaleFactor(sf int16) bool {
+	return sf >= minScaleFactor && sf <= maxScaleFactor
+}
+
+// literalSF parses a scale factor reference that is a literal exponent, such
+// as "-2". ok is false for a name, and for a number outside the range of a
+// scale factor.
+func literalSF(ref string) (int16, bool) {
+	lit, err := strconv.ParseInt(ref, 10, 16)
+	if err != nil || lit < minScaleFactor || lit > maxScaleFactor {
+		return 0, false
+	}
+	return int16(lit), true
+}
 
 // applySF resolves the scale factor of every point of g and fills ScaledValue.
 //
@@ -13,8 +40,10 @@ import (
 // A named scale factor is looked up in the point's own group instance first
 // and then in the enclosing ones, so a point in a nested group (a curve point,
 // say) can use a scale factor defined at the top of the model. Points whose
-// scale factor is missing or not implemented at every level are left unscaled.
-func applySF(g *DecodedGroup, sc *scope) {
+// scale factor is missing or not implemented at every level are left unscaled,
+// as are points whose nearest implemented scale factor is outside the range
+// SunSpec allows (-10 to 10); those add a warning.
+func applySF(g *DecodedGroup, sc *scope, warn func(string)) {
 	for i := range g.Points {
 		dp := &g.Points[i]
 		if dp.SFName == "" || !dp.Implemented {
@@ -22,17 +51,23 @@ func applySF(g *DecodedGroup, sc *scope) {
 		}
 
 		// A literal exponent is carried as a decimal string.
-		if lit, err := strconv.Atoi(dp.SFName); err == nil {
-			sfv := int16(lit)
-			dp.SFRawValue = &sfv
-			applyScale(dp, sfv)
+		if lit, ok := literalSF(dp.SFName); ok {
+			dp.SFRawValue = &lit
+			applyScale(dp, lit)
 			continue
 		}
 
-		if sfv, ok := sc.scaleFactor(dp.SFName); ok {
-			dp.SFRawValue = &sfv
-			applyScale(dp, sfv)
+		sfv, ok := sc.scaleFactor(dp.SFName)
+		if !ok {
+			continue
 		}
+		if !validScaleFactor(sfv) {
+			warn(fmt.Sprintf("point %s: scale factor %s is %d, outside %d..%d, value left unscaled",
+				dp.Name, dp.SFName, sfv, minScaleFactor, maxScaleFactor))
+			continue
+		}
+		dp.SFRawValue = &sfv
+		applyScale(dp, sfv)
 	}
 }
 

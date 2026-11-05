@@ -226,11 +226,12 @@ func buildServedModel(m *ServerModel) (*servedModel, []uint16, error) {
 		if m.Values != nil {
 			return nil, nil, &EncodeError{ModelID: m.ID, Message: "both Values and Registers are given"}
 		}
-		if len(m.Registers) > 0xFFFF {
+		n, ok := toUint16(len(m.Registers))
+		if !ok {
 			return nil, nil, fmt.Errorf("model %d: %d data registers: %w", m.ID, len(m.Registers), ErrModelLayout)
 		}
 		regs := make([]uint16, 2, len(m.Registers)+2)
-		regs[0], regs[1] = m.ID, uint16(len(m.Registers))
+		regs[0], regs[1] = m.ID, n
 		return &servedModel{id: m.ID}, append(regs, m.Registers...), nil
 	}
 	schema := m.Schema
@@ -266,13 +267,15 @@ func (s *Server) RegType() modbus.RegType { return s.regType }
 func (s *Server) Models() []ModelHeader {
 	out := make([]ModelHeader, len(s.models))
 	for i, m := range s.models {
+		// NewServer checked that the map, end marker included, fits below
+		// address 65536.
 		start := int(s.base) + m.start
 		out[i] = ModelHeader{
 			ID:           m.id,
-			Length:       uint16(m.length - 2),
-			StartAddress: uint16(start),
-			EndAddress:   uint16(start + m.length - 1),
-			NextAddress:  uint16(start + m.length),
+			Length:       mustUint16(m.length - 2),
+			StartAddress: mustUint16(start),
+			EndAddress:   mustUint16(start + m.length - 1),
+			NextAddress:  mustUint16(start + m.length),
 		}
 	}
 	return out
@@ -309,7 +312,7 @@ func (s *Server) Model(index int) (*DecodedModel, error) {
 	regs := append([]uint16(nil), s.registers(m)...)
 	s.mu.RUnlock()
 
-	addr := s.base + uint16(m.start)
+	addr := mustUint16(int(s.base) + m.start)
 	if m.schema == nil {
 		return &DecodedModel{
 			ModelID:         m.id,
@@ -533,8 +536,12 @@ func (s *Server) read(addr, quantity uint16) ([]uint16, error) {
 // write applies a client write, or returns the Modbus exception that refuses
 // it.
 func (s *Server) write(ctx context.Context, req *modbus.HoldingRegistersRequest) error {
-	lo, hi, ok := s.span(req.Addr, uint16(len(req.Args)))
-	if !ok || len(req.Args) > 0xFFFF {
+	quantity, ok := toUint16(len(req.Args))
+	if !ok {
+		return modbus.ErrIllegalDataAddress
+	}
+	lo, hi, ok := s.span(req.Addr, quantity)
+	if !ok {
 		return modbus.ErrIllegalDataAddress
 	}
 	// A valid write lies inside the data of one model: anything longer
@@ -574,7 +581,7 @@ func (s *Server) write(ctx context.Context, req *modbus.HoldingRegistersRequest)
 	regs := append([]uint16(nil), s.registers(m)...)
 	copy(regs[lo-m.start:], req.Args)
 	// The model keeps its length and its counts, so it decodes as before.
-	dm, _ := DecodeModel(regs, m.schema, s.base+uint16(m.start))
+	dm, _ := DecodeModel(regs, m.schema, mustUint16(int(s.base)+m.start))
 	if s.onWrite != nil {
 		w := &ServerWrite{
 			ClientAddr: req.ClientAddr,

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"path/filepath"
 )
 
 const (
@@ -143,11 +143,21 @@ func New(unitID uint8, baseAddress uint16) *File {
 	return &File{UnitID: &unitID, BaseAddress: &baseAddress, Models: []Model{}}
 }
 
-// Load reads and parses the device file at path. A file that cannot be read
-// gives the error of the operating system; a file that cannot be parsed the
-// error of Parse, prefixed with the path.
+// MaxFileSize is the longest file Load reads, 16 MiB. A device file for the
+// whole 16-bit register space, every register given, is well under 1 MiB.
+const MaxFileSize = 16 << 20
+
+// Load reads and parses the device file at path, which may be a symbolic link
+// to one.
+//
+// A path that is not a regular file (a directory, a device such as /dev/zero,
+// a named pipe) gives an error matching ErrNotRegular, and a file longer than
+// MaxFileSize one matching ErrTooLarge, both prefixed with the path and before
+// anything is parsed. A file that cannot be read otherwise gives the error of
+// the operating system; a file that cannot be parsed the error of Parse,
+// prefixed with the path.
 func Load(path string) (*File, error) {
-	data, err := os.ReadFile(path)
+	data, err := readFile(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}
@@ -237,12 +247,22 @@ func (f *File) Write(w io.Writer) error {
 	return err
 }
 
-// WriteFile writes the file to path in the form Marshal returns, creating
-// the file with mode 0644 or replacing its content.
+// WriteFile writes the file to path in the form Marshal returns.
+//
+// The text is written to a new file in the directory of path, synced to disk
+// and then renamed to path, so that path holds either its old content or the
+// whole new one: a failure leaves an existing file as it was. The result has
+// mode 0600 (read and write for the owner only), also when it replaces a file
+// with another mode. A destination that exists and is not a regular file, a
+// symbolic link included (dangling or not), is refused with an error matching
+// ErrNotRegular; the link is not followed.
+//
+// Before v0.9.0 WriteFile followed symbolic links, truncated the file before
+// writing it, and created it with mode 0644.
 func (f *File) WriteFile(path string) error {
 	data, err := f.Marshal()
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return writeFile(filepath.Clean(path), data)
 }

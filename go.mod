@@ -3,7 +3,7 @@ module github.com/otfabric/go-sunspec
 go 1.26.0
 
 require (
-	github.com/otfabric/go-modbus v1.11.0
+	github.com/otfabric/go-modbus v1.11.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 )
 

@@ -46,7 +46,7 @@ func ParseDir(dir string) ([]ModelDef, error) {
 // derive the model ID when the JSON has none: first from "model_<id>.json",
 // then from the fixed value of the ID point.
 func parseFile(path, name string) (ModelDef, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return ModelDef{}, fmt.Errorf("schema: read %s: %w", path, err)
 	}

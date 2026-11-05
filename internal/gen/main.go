@@ -42,10 +42,10 @@ func run(modelsDir, outFile string, stdout io.Writer) error {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(outFile), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outFile), 0o750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(outFile, src, 0o644); err != nil {
+	if err := os.WriteFile(outFile, src, 0o600); err != nil {
 		return err
 	}
 

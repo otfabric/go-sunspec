@@ -593,15 +593,23 @@ func TestDecodedModelValues(t *testing.T) {
 	if got := dm.Values().Points["W"]; got != 1.5 {
 		t.Errorf("without raw registers W = %v", got)
 	}
-	// A scale factor so large that the engineering value cannot be turned
-	// back: the registers are given.
+	// A scale factor outside -10..10 is not applied: W is given unscaled,
+	// the scale factor point as its registers (no number outside the range
+	// encodes), and the model rebuilds to the same registers.
 	absurd := []uint16{64006, 14, 0, 0, 0, 5, 0x7000, 0x8000, 0x8000, 0, 0, 0, 0, 0xFFFF, 3, 0x8000}
 	dm, err = DecodeModel(absurd, meta, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := dm.Values().Points["W"]; !reflect.DeepEqual(got, []uint16{3}) {
+	av := dm.Values()
+	if got := av.Points["W"]; got != int16(3) {
 		t.Errorf("absurd scale factor: W = %#v", got)
+	}
+	if got := av.Points["SF"]; !reflect.DeepEqual(got, []uint16{0x7000}) {
+		t.Errorf("absurd scale factor: SF = %#v", got)
+	}
+	if again, err := EncodeModel(meta, av); err != nil || !reflect.DeepEqual(again, absurd) {
+		t.Errorf("absurd scale factor: EncodeModel(Values()) = %v, %v", again, err)
 	}
 }
 
