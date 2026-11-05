@@ -36,7 +36,7 @@ func connect(t *testing.T, handler modbus.RequestHandler) *modbus.Client {
 	)
 	// The port is picked and released before the server binds it: retry
 	// when something else took it in between.
-	for attempt := 0; attempt < 10; attempt++ {
+	for range 10 {
 		var l net.Listener
 		if l, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
 			t.Fatalf("find free port: %v", err)
@@ -94,7 +94,7 @@ func readAll(t *testing.T, device *sunspec.Device) []*sunspec.DecodedModel {
 }
 
 // asJSON returns v as indented JSON.
-func asJSON(t *testing.T, v interface{}) string {
+func asJSON(t *testing.T, v any) string {
 	t.Helper()
 	text, err := json.MarshalIndent(v, "", " ")
 	if err != nil {
@@ -181,7 +181,7 @@ func newModel(t *testing.T, id uint16, instances int) *modelBuilder {
 	}
 	b := &modelBuilder{t: t, meta: meta}
 	b.fill(meta.Group)
-	for i := 0; i < instances; i++ {
+	for range instances {
 		b.fill(meta.Group.Groups[0])
 	}
 	b.regs[0] = id
@@ -204,7 +204,7 @@ func (b *modelBuilder) fill(g *registry.GroupMeta) int {
 func (b *modelBuilder) add(path string, vals map[string][]uint16) *modelBuilder {
 	b.t.Helper()
 	g := b.meta.Group
-	for _, name := range strings.Split(path, "/") {
+	for name := range strings.SplitSeq(path, "/") {
 		if g = g.Group(name); g == nil {
 			b.t.Fatalf("model %d has no group %s", b.meta.ID, path)
 		}

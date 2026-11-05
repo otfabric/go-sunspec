@@ -201,7 +201,8 @@ func encodeModel(meta *registry.ModelMeta, values *Values) ([]uint16, []pointSlo
 		return nil, nil, err
 	}
 	e.regs[0] = meta.ID
-	e.regs[1] = uint16(len(e.regs) - 2)
+	// group keeps the model within maxModelRegisters.
+	e.regs[1] = mustUint16(len(e.regs) - 2)
 	return e.regs, e.slots, nil
 }
 
@@ -242,7 +243,14 @@ func (s *encScope) scaleFactor(name string) (sf int16, ok bool, err error) {
 		if len(regs) == 0 || regs[0] == 0x8000 {
 			continue
 		}
-		return int16(regs[0]), true, nil
+		// Like the decoder, a scale factor outside the range SunSpec
+		// allows is not applied: the point is stored unscaled. Only raw
+		// registers can hold one, as encodeValue refuses such a number.
+		sf = uint16ToInt16(regs[0])
+		if !validScaleFactor(sf) {
+			return 0, false, nil
+		}
+		return sf, true, nil
 	}
 	return 0, false, nil
 }
@@ -471,8 +479,8 @@ func countFromValue(pm *registry.PointMeta, val any) (n int, implemented bool, e
 	}
 	if minRegisters(pm.Type) == 1 {
 		if pm.Type == "int16" || pm.Type == "sunssf" {
-			if int16(regs[0]) < 0 {
-				return 0, false, fmt.Errorf("negative count %d: %w", int16(regs[0]), ErrValueOutOfRange)
+			if v := uint16ToInt16(regs[0]); v < 0 {
+				return 0, false, fmt.Errorf("negative count %d: %w", v, ErrValueOutOfRange)
 			}
 		}
 		return int(regs[0]), true, nil

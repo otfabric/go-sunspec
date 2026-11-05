@@ -6,7 +6,7 @@ How to run each tier. No hardware is needed. What each layer is for, and how to 
 
 | Tier | Command | Prerequisites | In CI |
 |---|---|---|---|
-| Unit, round trip | `make test` | none | yes, Go 1.23 to 1.26, with `-race` |
+| Unit, round trip | `make test` | none | yes, Go 1.26 and 1.27, with `-race` |
 | End-to-end | `make e2e` (`TestE2E*`, `TestIntegration*`) | none | yes, as part of the package tests |
 | Chaos, stress | part of `make test` | none | yes, for a second or two each |
 | Soak | `make soak` | none | no |
@@ -35,4 +35,4 @@ The end-to-end tier reads the library's own `Server`, behind a real go-modbus TC
 
 ## Fuzz regressions
 
-`make fuzz` discovers the targets: `FuzzDecodeModel` and `devicefile.FuzzParse`. A failing input is written to `testdata/fuzz/<target>/` of the package. Commit it with the fix: `go test` replays it from then on.
+`make fuzz` discovers the targets: `FuzzDecodeModel`, `FuzzDiscover` (discovery and reads of arbitrary registers behind the marker, over loopback TCP), `FuzzServerRequest` (arbitrary holding register requests to a `Server`) and `devicefile.FuzzParse`. A failing input is written to `testdata/fuzz/<target>/` of the package. Commit it with the fix: `go test` replays it from then on.

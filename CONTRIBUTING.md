@@ -19,7 +19,7 @@ Thank you for your interest in contributing to `go-sunspec`! This document cover
 
 ### Prerequisites
 
-- Go 1.23+ (see [go.mod](go.mod)); the code must build and pass on Go 1.23, so do not use newer language or standard-library features
+- Go 1.26+ (see [go.mod](go.mod)); the code must build and pass on Go 1.26, so do not use newer language or standard-library features
 - [staticcheck](https://staticcheck.dev/), [golangci-lint](https://golangci-lint.run/) and [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) for the checks
 - `curl`, `jq` and `git` for the model scripts
 - No hardware: tests use the SunSpec fixture server in [`testutil`](testutil/)
@@ -88,7 +88,7 @@ Examples:
 - Add tests for new functionality in the appropriate `_test.go` file; the repository uses only the standard `testing` package
 - Use the package's own `Server` (see `newServed` in `harness_test.go`) or [`testutil`](testutil/) for anything that talks to a device: both serve a SunSpec model chain over Modbus TCP
 - Assert behaviour: decoded values, scale factors, the specific error — not just that the code ran
-- Keep tests fast, deterministic and race-clean; CI runs them with `-race` on every Go version from 1.23 and a 120 s per-package timeout
+- Keep tests fast, deterministic and race-clean; CI runs them with `-race` on Go 1.26 and 1.27 and a 120 s per-package timeout
 - Coverage is enforced by `make check` and by CI (minimum 90 %); new code should come with tests
 - If your change affects what is read from a device, verify against real hardware when possible and say which device in the pull request
 
@@ -101,7 +101,8 @@ Examples:
 | End-to-end | `e2e_test.go`, `integration_test.go` | A served device read through the public client path over real TCP. `e2e_test.go` starts with a feature → test matrix: add a line when you add a feature, and a test when a line has none |
 | Chaos | `chaos_test.go`, `chaos_proxy_test.go` | Faults on the wire (a proxy that drops, delays, truncates, splits, duplicates and corrupts frames) and in the device (exceptions, changing chains, lying headers, garbage). They assert invariants, not timings: no panic, no hang, no goroutine leak, and no wrong value returned as valid |
 | Stress | `stress_test.go` | Many goroutines reading, updating and writing at once, and server restarts under load. They assert consistency: no torn model, no generation going back |
-| Fuzz | `decode_fuzz_test.go`, `devicefile/parse_fuzz_test.go` | `DecodeModel` on arbitrary registers against every registry model, `devicefile.Parse` on arbitrary text. They assert invariants (`make fuzz`; CI runs each target for 10 s): no panic, documented errors only, points inside the registers, what decodes without warnings or parses reads back the same. A new decoder of untrusted input gets a target. An input that fails is committed under `testdata/fuzz/` with the fix |
+| Hostile device | `hostile_*_test.go` | A raw register map behind a Modbus server (`memDevice`): bad markers, broken chains, lengths that do not match the schema or the address space, out-of-range scale factors, control characters in strings, NaN and infinite floats, slow devices and devices that go away mid-discovery; requests a `Server` cannot frame. Typed errors, bounded time, no goroutine leak |
+| Fuzz | `decode_fuzz_test.go`, `hostile_fuzz_test.go`, `devicefile/parse_fuzz_test.go` | `DecodeModel` on arbitrary registers against every registry model, `Discover` and `ReadAll` on arbitrary registers, `Server` on arbitrary requests, `devicefile.Parse` on arbitrary text. They assert invariants (`make fuzz`; CI runs each target for 10 s): no panic, documented errors only, points inside the registers, what decodes without warnings or parses reads back the same. A new decoder of untrusted input gets a target. An input that fails is committed under `testdata/fuzz/` with the fix |
 
 `harness_test.go` has the helpers the last three share (a handler shim that swaps or distorts the device behind a running server, loopback servers, the `served` oracle).
 

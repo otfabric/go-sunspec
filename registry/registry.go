@@ -7,6 +7,8 @@
 // Callers must not call Register after init.
 package registry
 
+import "maps"
+
 // ModelMeta is the compiled schema of one SunSpec model: its identity and the
 // layout of its fixed and repeating blocks.
 //
@@ -199,9 +201,7 @@ func Known(id uint16) bool {
 // not be modified.
 func All() map[uint16]*ModelMeta {
 	out := make(map[uint16]*ModelMeta, len(models))
-	for k, v := range models {
-		out[k] = v
-	}
+	maps.Copy(out, models)
 	return out
 }
 

@@ -342,10 +342,7 @@ func (p *chaosProxy) apply(pair *chaosPair, dst net.Conn, frame []byte, fault ch
 		return false
 	case faultSplit:
 		for rest := frame; len(rest) > 0; {
-			n := 1 + rng.Intn(3)
-			if n > len(rest) {
-				n = len(rest)
-			}
+			n := min(1+rng.Intn(3), len(rest))
 			if !write(rest[:n]) {
 				return false
 			}

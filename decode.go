@@ -74,7 +74,7 @@ type decoder struct {
 	warnings []string
 }
 
-func (d *decoder) warnf(format string, args ...interface{}) {
+func (d *decoder) warnf(format string, args ...any) {
 	d.warnings = append(d.warnings, fmt.Sprintf(format, args...))
 }
 
@@ -128,7 +128,7 @@ func (d *decoder) group(gm *registry.GroupMeta, index int, path string, parent *
 	sc := &scope{group: g, parent: parent}
 	// Scale factors are resolved before the nested groups are decoded, so
 	// that this group's points are complete when they serve as scope.
-	applySF(g, sc)
+	applySF(g, sc, func(msg string) { d.warnf("%s: %s", path, msg) })
 
 	for _, child := range gm.Groups {
 		d.instances(child, g, path, sc)

@@ -115,7 +115,7 @@ func startModbus(t testing.TB, handler modbus.RequestHandler) (string, *modbus.S
 	)
 	// The port is picked and released before the server binds it: retry
 	// when something else took it in between.
-	for attempt := 0; attempt < 10; attempt++ {
+	for range 10 {
 		addr = listenAddr(t)
 		ms, err = modbus.NewServer(&modbus.ServerConfig{
 			URL: "tcp://" + addr, MaxClients: 256, Logger: modbus.NopLogger(), Timeout: 30 * time.Second,

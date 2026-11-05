@@ -1,6 +1,6 @@
 # go-sunspec — SunSpec Modbus Library for Go (Golang)
 
-[![Go](https://img.shields.io/badge/Go-1.23%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/otfabric/go-sunspec.svg)](https://pkg.go.dev/github.com/otfabric/go-sunspec)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/otfabric/go-sunspec/actions/workflows/ci.yml/badge.svg)](https://github.com/otfabric/go-sunspec/actions/workflows/ci.yml)
@@ -156,7 +156,7 @@ Full API and error contracts: [API.md](API.md), [ERRORS.md](ERRORS.md).
 go get github.com/otfabric/go-sunspec
 ```
 
-Requires Go 1.23 or later.
+Requires Go 1.26 or later.
 
 Looking for the `sunspecctl` command-line tool? It has its own repository, with install instructions for Linux, macOS and Windows: [otfabric/sunspecctl](https://github.com/otfabric/sunspecctl#install).
 
@@ -580,7 +580,7 @@ not been verified, is in [LIMITATIONS.md](LIMITATIONS.md).
 
 ## Requirements
 
-- Go 1.23+
+- Go 1.26+
 - [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.5.0+
 
 The tests of package `devicefile` validate files against its JSON Schema with [santhosh-tekuri/jsonschema](https://github.com/santhosh-tekuri/jsonschema) v6. It is a test dependency only: programs that import go-sunspec do not build it.

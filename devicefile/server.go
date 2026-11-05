@@ -94,11 +94,11 @@ func (g *Group) values(path string) (*sunspec.Values, error) {
 // pointValue converts a JSON value to a value the library encodes: a number,
 // a string, a list of bitfield symbol names, a list of raw registers, or nil
 // for a point that is not implemented.
-func pointValue(value interface{}) (interface{}, error) {
+func pointValue(value any) (any, error) {
 	switch v := value.(type) {
 	case nil, string, json.Number:
 		return v, nil
-	case []interface{}:
+	case []any:
 		names := make([]string, 0, len(v))
 		regs := make([]uint16, 0, len(v))
 		for _, el := range v {

@@ -499,7 +499,7 @@ func TestChaosRandomFaults(t *testing.T) {
 		}
 		// Several passes over one connection: what a fault leaves behind
 		// (a late or duplicated answer) meets the next request.
-		for pass := 0; pass < 2; pass++ {
+		for range 2 {
 			succeeded += env.exercise(what, client, rng, []time.Duration{chaosShort, 0}[rng.Intn(2)])
 		}
 		_ = client.Close()
@@ -537,7 +537,7 @@ func TestChaosCorruptedData(t *testing.T) {
 	if client == nil {
 		t.Fatal("cannot connect")
 	}
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		dev, err := bounded(t, "Discover", func(ctx context.Context) (*Device, error) {
 			return Discover(ctx, client, nil)
 		})
@@ -598,7 +598,7 @@ func TestChaosDeviceExceptions(t *testing.T) {
 		}
 	}
 	// Any request fails at random.
-	for round := 0; round < 40; round++ {
+	for round := range 40 {
 		rate := rng.Float64() * 0.6
 		var mu sync.Mutex
 		frng := rand.New(rand.NewSource(seed + int64(round)))
@@ -732,7 +732,7 @@ func TestChaosChainChanges(t *testing.T) {
 
 	// Swapped between calls: a device discovered on one chain reads the
 	// other.
-	for round := 0; round < 30; round++ {
+	for round := range 30 {
 		from, to := truths[rng.Intn(3)], truths[rng.Intn(3)]
 		env.shim.setTarget(from.srv)
 		dev, err := bounded(t, "Discover", func(ctx context.Context) (*Device, error) { return Discover(ctx, client, nil) })
@@ -766,7 +766,7 @@ func TestChaosChainChanges(t *testing.T) {
 	}
 
 	// Swapped in the middle of a call, after a random number of requests.
-	for round := 0; round < 60; round++ {
+	for round := range 60 {
 		from, to := truths[rng.Intn(3)], truths[rng.Intn(3)]
 		env.shim.setTarget(from.srv)
 		after := int64(rng.Intn(14))
@@ -1022,7 +1022,7 @@ func TestChaosGarbageRegisters(t *testing.T) {
 func chaosGarbagePass(t *testing.T, rng *rand.Rand, decoded, stable int) (int, int) {
 	for _, id := range registryIDs() {
 		meta := registry.ByID(id)
-		for round := 0; round < 6; round++ {
+		for round := range 6 {
 			// Around the fixed length, and sometimes much longer.
 			n := meta.FixedLength() + rng.Intn(40) - 5
 			if round%4 == 0 {

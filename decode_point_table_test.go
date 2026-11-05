@@ -29,7 +29,7 @@ func TestDecodePointAllTypes(t *testing.T) {
 		name     string
 		typ      string
 		regs     []uint16
-		want     interface{}
+		want     any
 		wantImpl bool
 		wantSyms []string
 		skipSyms bool
@@ -194,7 +194,7 @@ func TestDecodePointTooFewRegisters(t *testing.T) {
 		if got := minRegisters(typ); got != need {
 			t.Errorf("minRegisters(%q) = %d, want %d", typ, got, need)
 		}
-		for have := 0; have < need; have++ {
+		for have := range need {
 			regs := make([]uint16, have)
 			for i := range regs {
 				regs[i] = uint16(0xA000 + i)

@@ -33,8 +33,10 @@ func readRange(ctx context.Context, client *modbus.Client, unitID uint8, addr ui
 		return nil, fmt.Errorf("sunspec: register range %d+%d exceeds the 16-bit address space: %w",
 			addr, quantity, modbus.ErrUnexpectedParameters)
 	}
+	// From here addr+quantity is at most 0x10000, so every address and
+	// count below fits 16 bits.
 	if quantity <= maxRegistersPerRead {
-		return client.ReadRegisters(ctx, unitID, addr, uint16(quantity), regType)
+		return client.ReadRegisters(ctx, unitID, addr, mustUint16(quantity), regType)
 	}
 
 	result := make([]uint16, 0, quantity)
@@ -42,11 +44,8 @@ func readRange(ctx context.Context, client *modbus.Client, unitID uint8, addr ui
 	offset := 0
 
 	for remaining > 0 {
-		chunk := remaining
-		if chunk > maxRegistersPerRead {
-			chunk = maxRegistersPerRead
-		}
-		regs, err := client.ReadRegisters(ctx, unitID, uint16(int(addr)+offset), uint16(chunk), regType)
+		chunk := min(remaining, maxRegistersPerRead)
+		regs, err := client.ReadRegisters(ctx, unitID, mustUint16(int(addr)+offset), mustUint16(chunk), regType)
 		if err != nil {
 			return result, fmt.Errorf("%w: read at %d+%d: %w", ErrPartialRead, addr, offset, err)
 		}

@@ -52,7 +52,7 @@ func decodePoint(regs []uint16, pm *registry.PointMeta) (DecodedPoint, string) {
 
 	switch pm.Type {
 	case "int16":
-		v := int16(regs[0])
+		v := uint16ToInt16(regs[0])
 		if v == -32768 { // 0x8000
 			dp.Implemented = false
 		}
@@ -66,7 +66,7 @@ func decodePoint(regs []uint16, pm *registry.PointMeta) (DecodedPoint, string) {
 		dp.RawValue = v
 
 	case "sunssf":
-		v := int16(regs[0])
+		v := uint16ToInt16(regs[0])
 		if v == -32768 {
 			dp.Implemented = false
 		}
@@ -80,7 +80,7 @@ func decodePoint(regs []uint16, pm *registry.PointMeta) (DecodedPoint, string) {
 		dp.RawValue = v
 
 	case "int32":
-		v := int32(uint32(regs[0])<<16 | uint32(regs[1]))
+		v := uint32ToInt32(uint32(regs[0])<<16 | uint32(regs[1]))
 		if v == -2147483648 { // 0x80000000
 			dp.Implemented = false
 		}
@@ -101,7 +101,7 @@ func decodePoint(regs []uint16, pm *registry.PointMeta) (DecodedPoint, string) {
 		dp.RawValue = v
 
 	case "int64":
-		v := int64(uint64(regs[0])<<48 | uint64(regs[1])<<32 | uint64(regs[2])<<16 | uint64(regs[3]))
+		v := uint64ToInt64(uint64(regs[0])<<48 | uint64(regs[1])<<32 | uint64(regs[2])<<16 | uint64(regs[3]))
 		if v == math.MinInt64 {
 			dp.Implemented = false
 		}
@@ -218,8 +218,7 @@ func decodePoint(regs []uint16, pm *registry.PointMeta) (DecodedPoint, string) {
 func decodeString(regs []uint16) string {
 	buf := make([]byte, len(regs)*2)
 	for i, r := range regs {
-		buf[i*2] = byte(r >> 8)
-		buf[i*2+1] = byte(r)
+		binary.BigEndian.PutUint16(buf[i*2:], r)
 	}
 	// Trim NULs and trailing spaces
 	s := strings.TrimRight(string(buf), "\x00 ")
@@ -232,11 +231,10 @@ func decodeIPAddr(regs []uint16) string {
 	if len(regs) < 2 {
 		return ""
 	}
-	ip := net.IP([]byte{
-		byte(regs[0] >> 8), byte(regs[0]),
-		byte(regs[1] >> 8), byte(regs[1]),
-	})
-	return ip.String()
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint16(buf, regs[0])
+	binary.BigEndian.PutUint16(buf[2:], regs[1])
+	return net.IP(buf).String()
 }
 
 // decodeIPv6Addr formats eight registers as an IPv6 address. It returns an
@@ -246,7 +244,7 @@ func decodeIPv6Addr(regs []uint16) string {
 		return ""
 	}
 	buf := make([]byte, 16)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		binary.BigEndian.PutUint16(buf[i*2:], regs[i])
 	}
 	ip := net.IP(buf)
@@ -262,7 +260,7 @@ func decodeEUI48(regs []uint16) string {
 		return ""
 	}
 	buf := make([]byte, 6)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		binary.BigEndian.PutUint16(buf[i*2:], regs[i+1])
 	}
 	return net.HardwareAddr(buf).String()
@@ -282,7 +280,9 @@ func allRegisters(regs []uint16, v uint16) bool {
 // nil when the schema does not list it.
 func resolveEnumSymbols(val uint32, symbols []registry.SymbolMeta) []string {
 	for _, s := range symbols {
-		if s.Value >= 0 && uint32(s.Value) == val {
+		// Compared as int64: a schema value beyond 32 bits never matches,
+		// rather than matching its truncation.
+		if s.Value >= 0 && int64(s.Value) == int64(val) {
 			return []string{s.Name}
 		}
 	}

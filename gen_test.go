@@ -8,7 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"net"
-	"sort"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -433,7 +433,7 @@ func registryIDs() []uint16 {
 	for id := range registry.All() {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	return ids
 }
 

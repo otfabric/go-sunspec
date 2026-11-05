@@ -19,6 +19,16 @@ var (
 	// takes, or unit ID 0. Values that do not fit their point are reported
 	// by the encoder instead, with sunspec.ErrEncode.
 	ErrInvalid = errors.New("devicefile: invalid device file")
+
+	// ErrTooLarge indicates a file that Load refuses to read because it is
+	// longer than MaxFileSize. Added in v0.9.0.
+	ErrTooLarge = errors.New("devicefile: file too large")
+
+	// ErrNotRegular indicates a path that is not a regular file: a
+	// directory, a device such as /dev/zero, a named pipe or a socket for
+	// Load; for WriteFile also a symbolic link, dangling or not, at the
+	// destination. Added in v0.9.0.
+	ErrNotRegular = errors.New("devicefile: not a regular file")
 )
 
 // SyntaxError describes why text could not be parsed as a device file.

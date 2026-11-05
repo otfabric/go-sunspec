@@ -8,7 +8,7 @@ None of this is a conformance claim: nothing is certified.
 
 | go-sunspec | Go | go-modbus | Models | Supported |
 |---|---|---|---|---|
-| **v0.7.1** | 1.23 or later (CI: 1.23 to 1.26) | v1.9.0 | 112, snapshot of sunspec/models | **yes** |
+| **v0.9.0** | 1.26 or later (CI: 1.26 and 1.27) | v1.11.1 | 112, snapshot of sunspec/models | **yes** |
 
 ## 2. Platforms
 

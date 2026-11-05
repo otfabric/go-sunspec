@@ -529,12 +529,12 @@ func TestApplySFWithoutScope(t *testing.T) {
 		{Name: "ODD_SF", Type: "sunssf", RawValue: "text", Implemented: true},
 	}}
 	// Without a scope only literal exponents can be resolved.
-	applySF(g, nil)
+	applySF(g, nil, func(string) {})
 	wantScaled(t, g.Points[0], -1, 0.5)
 	wantUnscaled(t, g.Points[1])
 	wantUnscaled(t, g.Points[3])
 
-	applySF(g, &scope{group: g})
+	applySF(g, &scope{group: g}, func(string) {})
 	wantScaled(t, g.Points[1], 2, 500)
 	wantUnscaled(t, g.Points[3])
 	wantUnscaled(t, g.Points[4])
@@ -542,7 +542,7 @@ func TestApplySFWithoutScope(t *testing.T) {
 
 func TestApplyScaleAllNumericTypes(t *testing.T) {
 	tests := []struct {
-		raw  interface{}
+		raw  any
 		want float64
 	}{
 		{int16(-4), -400}, {uint16(4), 400},
@@ -557,7 +557,7 @@ func TestApplyScaleAllNumericTypes(t *testing.T) {
 			t.Errorf("%T: ScaledValue = %v, want %g", tc.raw, dp.ScaledValue, tc.want)
 		}
 	}
-	for _, raw := range []interface{}{"text", []uint16{1}, nil} {
+	for _, raw := range []any{"text", []uint16{1}, nil} {
 		dp := DecodedPoint{RawValue: raw}
 		applyScale(&dp, 2)
 		if dp.ScaledValue != nil {

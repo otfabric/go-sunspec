@@ -160,7 +160,7 @@ func TestReadModelsTimeoutStopsBatch(t *testing.T) {
 	if got := h.requestAddrs(); len(got) != 2 {
 		t.Errorf("%d requests at %v, want 2", len(got), got)
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if results[i].Err != nil {
 			t.Errorf("model %d: %v", m[i].Header.ID, results[i].Err)
 		}
@@ -233,8 +233,7 @@ func TestReadModelsFailuresLikeReadModel(t *testing.T) {
 			t.Fatal(err)
 		}
 		results, err := dev.ReadModels(ctx, dev.Discovery.Models)
-		var de *DecodeError
-		if !errors.As(err, &de) {
+		if _, ok := errors.AsType[*DecodeError](err); !ok {
 			t.Fatalf("err = %v, want the first failure, a *DecodeError", err)
 		}
 		if !errors.Is(results[1].Err, modbus.ErrIllegalDataAddress) || errors.Is(results[1].Err, ErrPartialRead) {

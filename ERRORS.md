@@ -63,7 +63,7 @@ if errors.As(err, &dec) {
 | `batch.ErrNotAttempted` (go-modbus) | `ReadModels`: the instance was not read because an earlier request timed out, the connection failed or the context ended; the error also wraps that cause |
 | `ErrModelChanged` | `ReadModel`: the ID and length registers read with the model differ from the discovery result; discover again |
 | `ErrEncode` | Encode failure (via `*EncodeError`) |
-| `ErrValueOutOfRange` | A value does not fit its point: out of the type's range after scaling, equal to the type's "not implemented" value, a string longer than the point, more group instances than allowed. Always together with `ErrEncode` |
+| `ErrValueOutOfRange` | A value does not fit its point: out of the type's range after scaling, equal to the type's "not implemented" value, a string longer than the point, more group instances than allowed, a `sunssf` value outside -10..10. Always together with `ErrEncode` |
 | `ErrModelLayout` | `NewServer`: a model without data registers, model ID 65535, or a chain past address 65535. `Update`, `SetValues`, `SetPoint`, `SetRegisters`: the change would alter the length or group structure of a served model |
 | `ErrModelChainInvalid` | Re-export of `modbus.ErrSunSpecModelChainInvalid`: a zero-length model that is not the end marker, or a model that does not fit in the address space (it runs beyond address 65535, or leaves no room for the header after it) |
 | `ErrModelChainLimitExceeded` | Re-export of `modbus.ErrSunSpecModelChainLimitExceeded` |
@@ -142,6 +142,8 @@ start with a package name: they are written to follow a file name, as in
 | Sentinel | Meaning |
 |----------|---------|
 | `devicefile.ErrSyntax` | `Parse`, `Load`: the text is not a device file. Always through `*SyntaxError` |
+| `devicefile.ErrTooLarge` | `Load`: the file is longer than `devicefile.MaxFileSize` (16 MiB); nothing is parsed. Since v0.9.0 |
+| `devicefile.ErrNotRegular` | `Load`: the path is a directory, a device, a named pipe or a socket. `File.WriteFile`: the destination exists and is not a regular file, a symbolic link included; nothing is written. Since v0.9.0 |
 | `devicefile.ErrInvalid` | `File.ServerModels`, `File.Server`: the file parsed but does not describe a device. Through `*ModelError` for a problem of one model; a plain error for unit ID 0 |
 
 ```go
@@ -171,7 +173,9 @@ name the model's schema refuses, `ErrModelLayout` for a model with an empty
 `registers` list or a chain that does not fit the address space. They do not
 match `devicefile.ErrInvalid`.
 
-`Load` returns the operating system's error for a file it cannot read, and
+Apart from `ErrTooLarge` and `ErrNotRegular`, `Load` returns the operating
+system's error for a file it cannot read, as `WriteFile` does for one it
+cannot create, sync or rename; and
 `Capture` the read error prefixed with `read model <id>`; `errors.Is` matches
 the cause (`ErrPartialRead`, `ErrModelChanged`, a go-modbus error, the
 context's error). A nil device is an error wrapping

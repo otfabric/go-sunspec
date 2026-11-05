@@ -209,7 +209,12 @@ instances of a nested group is, per the schema (`registry.GroupMeta`):
 | `Count` == 0 | As many as the remaining registers hold. |
 
 A named scale factor is looked up the same way: in the point's own group
-instance first, then in the enclosing ones.
+instance first, then in the enclosing ones. The SunSpec information model gives
+`sunssf` the range -10 to 10: a point whose nearest implemented scale factor is
+outside it is left unscaled (`ScaledValue` and `SFRawValue` nil) and the model
+gets a warning; before v0.9.0 the exponent was applied, so 10^400 made the value
++Inf, or NaN for a raw 0. A literal exponent in a schema outside -10..10 is
+treated like an unresolvable name.
 
 `DecodedPoint.RegisterOffset` is the point's offset from the model's ID
 register, that is its index in `RawRegisters`.
@@ -281,8 +286,10 @@ group instance or, failing that, in an enclosing one — the lookup the decoder
 uses — or the schema's literal exponent. The stored integer is
 `value / 10^sf`, rounded to the nearest integer with halves away from zero.
 Unscaled integer points round a fractional value the same way. When the
-`sunssf` point is not set at any level, the value is stored unscaled, which is
-how `DecodeModel` reads such a point. Integer values without scaling are
+`sunssf` point is not set at any level, or holds raw registers outside -10..10,
+the value is stored unscaled, which is how `DecodeModel` reads such a point. A
+number outside -10..10 for a `sunssf` point fails with `ErrValueOutOfRange`
+(since v0.9.0; raw registers given as `[]uint16` are stored as they are). Integer values without scaling are
 converted exactly, including 64-bit ones beyond the precision of a `float64`.
 
 Nothing is wrapped or clamped: a value outside the range of the point's type
@@ -521,11 +528,13 @@ type Points []Point // one JSON object, in order
 
 func New(unitID uint8, baseAddress uint16) *File // no models: "models": []
 func Parse(data []byte) (*File, error)
-func Load(path string) (*File, error)
+func Load(path string) (*File, error)      // regular files of up to MaxFileSize only
+
+const MaxFileSize = 16 << 20                 // 16 MiB, since v0.9.0
 
 func (f *File) Marshal() ([]byte, error)      // indented by two spaces, ends with a newline
 func (f *File) Write(w io.Writer) error
-func (f *File) WriteFile(path string) error   // mode 0644
+func (f *File) WriteFile(path string) error   // temp file, fsync, rename; mode 0600
 
 func (f *File) ServerModels() ([]sunspec.ServerModel, error)
 func (f *File) Server(opts *ServerOptions) (*sunspec.Server, error)
@@ -551,7 +560,16 @@ func Schema() []byte
 `Parse` checks the form of the file: JSON, the types of the members, no
 unknown members, no point given twice, nothing after the document. Its errors
 are `*SyntaxError`, with line and column for malformed JSON and for a member
-of the wrong type. `Load` reads a file and prefixes a parse error with the
+of the wrong type. `Load` refuses a path that is not a regular file
+(`ErrNotRegular`: a directory, `/dev/zero`, a named pipe; a symbolic link to a
+regular file is followed) and a file longer than `MaxFileSize`, 16 MiB
+(`ErrTooLarge`), before parsing anything. `WriteFile` writes a temporary file
+of mode 0600 in the destination's directory, syncs it and renames it into
+place, so a failure leaves the old file as it was; it refuses a destination
+that is a symbolic link (dangling or not) or another non-regular file with
+`ErrNotRegular` and does not follow it. Before v0.9.0 `Load` read any path
+whole, and `WriteFile` followed links, truncated before writing and used mode
+0644. `Load` reads a file and prefixes a parse error with the
 path. The order of the points is kept (`Points`), so that a file is written
 back the way it was read.
 

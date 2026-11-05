@@ -23,7 +23,7 @@ var (
 func validate(t *testing.T, data []byte) error {
 	t.Helper()
 	compileOnce.Do(func() {
-		var doc interface{}
+		var doc any
 		if doc, compileErr = jsonschema.UnmarshalJSON(bytes.NewReader(Schema())); compileErr != nil {
 			return
 		}
