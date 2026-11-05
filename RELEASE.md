@@ -1,5 +1,17 @@
 # go-sunspec Releases
 
+## v0.9.0
+
+**Date:** 2026-11-05
+**Previous release:** v0.8.5
+
+### Changed
+
+- Go 1.26 or later is required (was 1.23); CI runs Go 1.26 and 1.27. `go fix` modernised the code; no API changes.
+- Built on go-modbus v1.11.0: the server closes a connection whose response cannot be written in time; RTU and ASCII links drain a late answer instead of returning it for the next request; RTU variable-length reads honour the deadline; UDP drops bytes left over from a previous datagram.
+
+---
+
 ## v0.8.5
 
 **Date:** 2026-11-03
