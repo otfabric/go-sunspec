@@ -32,6 +32,14 @@ package sunspec
 //	Live updates seen by the next read                      TestE2ELiveUpdates
 //	Client writes to RW points (FC6, FC16), OnWrite         TestE2EClientWrites
 //	Rejected writes (read-only, structure, hook, FC22/23)   TestE2EClientWrites
+//	Device.WritePoint: plain, 32-bit, scaled, string, raw   TestWritePoint, TestWritePointOfRegistryModel
+//	WritePoint refusals before sending (ErrPointNotWritable,
+//	  ErrPointNotFound, *EncodeError, ErrModelChanged)      TestWritePointRefusals
+//	WritePoint: device exception, read-only client, input
+//	  registers, read back failing after the write          TestWritePointRefusedByTheDevice, ...ReadOnlyClient,
+//	                                                        ...InputRegisters, ...ReadBackFails
+//	WritePoint under faults on the wire                     TestChaosWritePoint (write_chaos_test.go)
+//	WritePoint on arbitrary names and values                FuzzWritePoint (write_fuzz_test.go)
 //	ErrUnknownModel, ErrPointNotFound                       TestE2EReadModelAndPoint
 //	ErrPartialRead (later chunk fails)                      TestE2EErrorPaths
 //	*DecodeError (model shorter than its schema)            TestE2EErrorPaths

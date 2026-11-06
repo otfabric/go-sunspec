@@ -14,7 +14,7 @@ import (
 
 // writeTarget serves srv over TCP and discovers it, with the test schemas of
 // ctlServer attached to the instances the registry does not know.
-func writeTarget(t *testing.T, srv *Server, conf modbus.Config) (*Device, *Server) {
+func writeTarget(t testing.TB, srv *Server, conf modbus.Config) (*Device, *Server) {
 	t.Helper()
 	addr, _ := startModbus(t, srv)
 	conf.URL, conf.Logger = "tcp://"+addr, modbus.NopLogger()
@@ -29,7 +29,9 @@ func writeTarget(t *testing.T, srv *Server, conf modbus.Config) (*Device, *Serve
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	dev, err := Discover(testCtx(t), client, &DiscoverOptions{UnitID: srv.UnitID(), RegType: srv.RegType()})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	dev, err := Discover(ctx, client, &DiscoverOptions{UnitID: srv.UnitID(), RegType: srv.RegType()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +46,7 @@ func writeTarget(t *testing.T, srv *Server, conf modbus.Config) (*Device, *Serve
 	return dev, srv
 }
 
-func servedPoint(t *testing.T, srv *Server, index int, name string) any {
+func servedPoint(t testing.TB, srv *Server, index int, name string) any {
 	t.Helper()
 	dm, err := srv.Model(index)
 	if err != nil {

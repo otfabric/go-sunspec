@@ -12,6 +12,7 @@
 
 ### Tests
 
+- `write_test.go` (end-to-end against `Server` over TCP: every value form, every refusal, a device exception, a read-only client, input registers, a failing read back), `TestChaosWritePoint` (faults on the wire: no stray register changes, no value nobody asked for, recovery) and the fuzz target `FuzzWritePoint`.
 - Interop: `TestGoWritesPeerDevice` writes pysunspec2's device and reads the values back with pysunspec2's client. The interop package runs, by hand, against the published go-sunspec image (`SUNSPEC_INTEROP_OTFABRIC_IMAGE`, the Self-interop workflow).
 
 ---
