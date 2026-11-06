@@ -219,5 +219,6 @@ injected `*modbus.Client`. Configure them on `modbus.Config` before
 A client created with `modbus.Config.AllowedFunctionCodes` refuses other
 function codes with an error wrapping `modbus.ErrFunctionCodeNotAllowed`
 before anything is sent. With `sunspec.ReadFunctionCodes()` as the list, no
-call of this package is ever refused: its client side sends FC 03 and FC 04
-only (see [API.md](API.md#a-read-only-client)).
+read of this package is ever refused: everything but `Device.WritePoint` sends
+FC 03 and FC 04 only, and `WritePoint` (FC 16) is refused with
+`modbus.ErrFunctionCodeNotAllowed` (see [API.md](API.md#a-read-only-client)).
