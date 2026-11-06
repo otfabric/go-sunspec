@@ -16,7 +16,7 @@ CI runs on Linux only (`ubuntu-latest`). Linux arm64 and arm, macOS arm64 and Wi
 
 ## 3. Feature support
 
-✅ supported · ◐ partly (see the notes) · — not implemented. **E2E**: the library's `Server` read through the client path over loopback TCP. No row has independent evidence: see [INTEROPERABILITY.md](../INTEROPERABILITY.md).
+✅ supported · ◐ partly (see the notes) · — not implemented. **E2E**: the library's `Server` read through the client path over loopback TCP. **Interop**: against pysunspec2 and cB-Sigma, see [INTEROPERABILITY.md](../INTEROPERABILITY.md).
 
 | Feature | Client | Server | E2E |
 |---|:---:|:---:|:---:|

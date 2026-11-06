@@ -5,7 +5,7 @@ What go-sunspec does not do, and what has not been verified. For the API contrac
 ## Certification and verification
 
 - **Nothing is certified.** go-sunspec has not been certified by the SunSpec Alliance or anyone else, and no conformance claim is made.
-- **One independent implementation is in the test suite, on a limited set of models.** pysunspec2 covers models 1, 101, 103, 111, 120, 123, 160 and 701 ([INTEROPERABILITY.md](INTEROPERABILITY.md)). The other tests read the library's own `Server` and the [`testutil`](testutil/) fixture. Encoder and decoder share the same schemas, so a misreading of any other model definition would not show up in a round trip. No real device has been tested.
+- **Two independent implementations are in the test suite, on a limited set of models.** pysunspec2 and cB-Sigma's sunspec and sunspec-sim cover models 1, 101, 103, 111, 120, 123, 160, 701, 702, 704 and 705 ([INTEROPERABILITY.md](INTEROPERABILITY.md)). The other tests read the library's own `Server` and the [`testutil`](testutil/) fixture. Encoder and decoder share the same schemas, so a misreading of any other model definition would not show up in a round trip. No real device has been tested.
 - **No device-compatibility list exists.** CI uses no hardware. Which vendors and firmware versions work is not recorded here.
 - **Fuzzing is short.** CI runs each fuzz target for 10 seconds. There is no scheduled long run. `make soak` and `make fuzz FUZZTIME=...` are run by hand.
 - CI runs on Linux only (`ubuntu-latest`).

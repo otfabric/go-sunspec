@@ -26,17 +26,25 @@ import (
 	sunspec "github.com/otfabric/go-sunspec"
 )
 
-// release is the otfabric/sunspec-interop release of defaultImage, whose
-// digest comes from the manifest of that release. Keep it in step with the
-// Interop workflow (TestWorkflowPin).
+// release is the otfabric/sunspec-interop release of the reference images,
+// whose digests come from the manifest of that release. Keep them in step with
+// the Interop workflow (TestWorkflowPin).
 const (
-	release      = "v0.1.0"
-	defaultImage = "ghcr.io/otfabric/sunspec-interop-pysunspec2:" + release +
-		"@sha256:4e7cae22cff30b282966cbf1c777016286b623afecba85030011040cb86c4a17"
+	release         = "v0.3.0"
+	pysunspec2Image = "ghcr.io/otfabric/sunspec-interop-pysunspec2:" + release +
+		"@sha256:0f34e284b3110c3123449a6c7390f9bc7860a50a2e54adc08245c994514a7e18"
+	cbsigmaImage = "ghcr.io/otfabric/sunspec-interop-cbsigma:" + release +
+		"@sha256:77c23c3fd3a6253ea25173e55f83238b076070ee53c051f493228c207d344d42"
 )
 
+// references are the independent implementations go-sunspec is tested
+// against by default; the environment variable of each overrides its image.
+var references = []struct{ name, image, env string }{
+	{"pysunspec2", pysunspec2Image, "SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE"},
+	{"cbsigma", cbsigmaImage, "SUNSPEC_INTEROP_CBSIGMA_IMAGE"},
+}
+
 const (
-	imageEnv      = "SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE"
 	requireEnv    = "SUNSPEC_REQUIRE_INTEROP"
 	containerPort = 1502
 	hostGateway   = "host.docker.internal"
@@ -54,7 +62,7 @@ const (
 	adaptersEnv      = "SUNSPEC_INTEROP_ADAPTERS"
 )
 
-var fixtures = []string{"baseline", "edge", "altbase"}
+var fixtures = []string{"baseline", "edge", "altbase", "der"}
 
 // peer is one adapter image of sunspec-interop that go-sunspec is tested
 // against.
@@ -63,13 +71,17 @@ type peer struct {
 	image string
 }
 
-// peers returns pysunspec2 (SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE overrides its
-// image) and, when SUNSPEC_INTEROP_OTFABRIC_IMAGE names one, otfabric.
+// peers returns the references and, when SUNSPEC_INTEROP_OTFABRIC_IMAGE names
+// one, otfabric.
 func peers(t *testing.T) []peer {
 	t.Helper()
-	all := []peer{{"pysunspec2", defaultImage}}
-	if v := os.Getenv(imageEnv); v != "" {
-		all[0].image = v
+	var all []peer
+	for _, r := range references {
+		p := peer{r.name, r.image}
+		if v := os.Getenv(r.env); v != "" {
+			p.image = v
+		}
+		all = append(all, p)
 	}
 	if v := os.Getenv(otfabricImageEnv); v != "" {
 		all = append(all, peer{"otfabric", v})
@@ -341,6 +353,10 @@ func compareGroup(t *testing.T, where string, g *sunspec.DecodedGroup, raw, scal
 		pt := &g.Points[i]
 		path := where + "." + pt.Name
 		peer, ok := raw[pt.Name]
+		if !ok && pt.Type == "pad" {
+			// A pad carries no value; cbsigma leaves it out of the document.
+			continue
+		}
 		if !ok {
 			t.Errorf("%s: the peer has no such point", path)
 			continue
@@ -371,8 +387,7 @@ func compareGroup(t *testing.T, where string, g *sunspec.DecodedGroup, raw, scal
 	}
 	seen := map[string]int{}
 	for _, inst := range g.Groups {
-		rawList, _ := raw[inst.Name].([]any)
-		scaledList, _ := scaled[inst.Name].([]any)
+		rawList, scaledList := instances(raw[inst.Name]), instances(scaled[inst.Name])
 		i := seen[inst.Name]
 		seen[inst.Name]++
 		if i >= len(rawList) || i >= len(scaledList) {
@@ -381,6 +396,18 @@ func compareGroup(t *testing.T, where string, g *sunspec.DecodedGroup, raw, scal
 		}
 		compareGroup(t, fmt.Sprintf("%s.%s[%d]", where, inst.Name, i), inst, rawList[i].(map[string]any), scaledList[i].(map[string]any))
 	}
+}
+
+// instances is the list of a group's instances in a scan document: a list for a
+// repeating group, an object for a group that occurs once (contract 1.2).
+func instances(v any) []any {
+	switch x := v.(type) {
+	case []any:
+		return x
+	case map[string]any:
+		return []any{x}
+	}
+	return nil
 }
 
 // compareDevice compares a whole device: the model chain, then every point.
@@ -418,7 +445,10 @@ func compareDevice(t *testing.T, models []*sunspec.DecodedModel, scan *peerScan)
 
 // valuesFrom builds encoder input from what the peer read: the encoder takes
 // scaled values, and a point the peer reads as not implemented is left out.
-func valuesFrom(scaled map[string]any, top bool) *sunspec.Values {
+// Where the scaled value equals the raw one (no scale factor, or 0), the raw
+// value is used: a peer may print a scaled 64-bit accumulator as a float64,
+// which loses its last digits.
+func valuesFrom(raw, scaled map[string]any, top bool) *sunspec.Values {
 	v := &sunspec.Values{}
 	for name, value := range scaled {
 		if top && (name == "ID" || name == "L") {
@@ -426,15 +456,36 @@ func valuesFrom(scaled map[string]any, top bool) *sunspec.Values {
 		}
 		switch x := value.(type) {
 		case nil:
-		case []any:
-			for _, inst := range x {
-				v.Add(name, valuesFrom(inst.(map[string]any), false))
+		case []any, map[string]any:
+			rawInst := instances(raw[name])
+			for i, inst := range instances(x) {
+				var r map[string]any
+				if i < len(rawInst) {
+					r, _ = rawInst[i].(map[string]any)
+				}
+				v.Add(name, valuesFrom(r, inst.(map[string]any), false))
 			}
 		default:
-			v.Set(name, x)
+			v.Set(name, exact(raw[name], x))
 		}
 	}
 	return v
+}
+
+// exact returns the raw value when it is a number equal to the scaled one as a
+// float64, and the scaled value otherwise.
+func exact(raw, scaled any) any {
+	r, ok := raw.(json.Number)
+	s, ok2 := scaled.(json.Number)
+	if !ok || !ok2 {
+		return scaled
+	}
+	rf, err := r.Float64()
+	sf, err2 := s.Float64()
+	if err != nil || err2 != nil || rf != sf {
+		return scaled
+	}
+	return r
 }
 
 // peerRegisters is the map the peer encodes for a fixture.
@@ -456,7 +507,7 @@ func servedFrom(t *testing.T, fx fixture, scan *peerScan) *sunspec.Server {
 	t.Helper()
 	models := make([]sunspec.ServerModel, len(scan.Models))
 	for i := range scan.Models {
-		models[i] = sunspec.ServerModel{ID: scan.Models[i].ID, Values: valuesFrom(scan.Models[i].Scaled, true)}
+		models[i] = sunspec.ServerModel{ID: scan.Models[i].ID, Values: valuesFrom(scan.Models[i].Values, scan.Models[i].Scaled, true)}
 	}
 	srv, err := sunspec.NewServer(&sunspec.ServerOptions{UnitID: fx.UnitID, BaseAddress: fx.BaseAddress}, models...)
 	if err != nil {
@@ -544,14 +595,105 @@ func compareRegisters(t *testing.T, srv *sunspec.Server, want []uint16) {
 
 // TestPeerWritesGoServer writes a read-write point with the peer's client,
 // and is refused on a read-only point. A peer whose client does not write
-// (otfabric: go-sunspec's client reads only) is skipped.
+// (otfabric before go-sunspec v0.10.0) is skipped. A peer whose client writes
+// points inside groups (write-group) also writes a curve point and a control
+// group point of the DER fixture, and is refused on a read-only curve flag.
 func TestPeerWritesGoServer(t *testing.T) {
 	forEachPeer(t, func(t *testing.T, a peer) {
-		if !slices.Contains(a.clientOperations(t), "write") {
+		ops := a.clientOperations(t)
+		if !slices.Contains(ops, "write") {
 			t.Skipf("%s declares no client operation write", a.name)
 		}
 		peerWritesGoServer(t, a)
+		t.Run("group", func(t *testing.T) {
+			if !slices.Contains(ops, "write-group") {
+				t.Skipf("%s declares no client operation write-group", a.name)
+			}
+			peerWritesGoServerGroups(t, a)
+		})
 	})
+}
+
+// groupPoint finds a point by a path of group names, each with its 0-based
+// instance, under a decoded model.
+func groupPoint(m *sunspec.DecodedModel, groups []string, index []int, point string) *sunspec.DecodedPoint {
+	g := m.Group
+	for i, name := range groups {
+		var next *sunspec.DecodedGroup
+		n := 0
+		for _, inst := range g.Groups {
+			if inst.Name != name {
+				continue
+			}
+			if n == index[i] {
+				next = inst
+				break
+			}
+			n++
+		}
+		if next == nil {
+			return nil
+		}
+		g = next
+	}
+	for i := range g.Points {
+		if g.Points[i].Name == point {
+			return &g.Points[i]
+		}
+	}
+	return nil
+}
+
+func peerWritesGoServerGroups(t *testing.T, a peer) {
+	fx := loadFixture(t, a, "der")
+	ip, _ := startDevice(t, a, "der")
+	var want peerScan
+	if code := peerClient(t, a, &want, "scan", ip, containerPort, fx.UnitID); code != 0 {
+		t.Fatalf("%s scan: exit %d", a.name, code)
+	}
+	srv := servedFrom(t, fx, &want)
+	port := startServer(t, srv)
+
+	writes := []struct {
+		model  uint16
+		path   string
+		groups []string
+		index  []int
+		point  string
+		value  int
+	}{
+		{704, "PFWInj.PF", []string{"PFWInj"}, []int{0}, "PF", 970},
+		{705, "Crv[1].Pt[2].V", []string{"Crv", "Pt"}, []int{1, 2}, "V", 1090},
+		{705, "Crv[1].ActPt", []string{"Crv"}, []int{1}, "ActPt", 4},
+	}
+	for _, w := range writes {
+		var res struct {
+			Value json.Number `json:"value"`
+		}
+		if code := peerClient(t, a, &res, "write-group", hostGateway, port, fx.UnitID, "--model", strconv.Itoa(int(w.model)), "--point", w.path, "--value", strconv.Itoa(w.value)); code != 0 {
+			t.Errorf("write-group %s: exit %d", w.path, code)
+			continue
+		}
+		if res.Value.String() != strconv.Itoa(w.value) {
+			t.Errorf("%s: %s reads back %s", w.path, a.name, res.Value)
+		}
+	}
+	models := openDevice(t, port, fx.UnitID)
+	for _, w := range writes {
+		for _, m := range models {
+			if m.ModelID != w.model {
+				continue
+			}
+			got := groupPoint(m, w.groups, w.index, w.point)
+			if got == nil || !sameRaw(got.RawValue, json.Number(strconv.Itoa(w.value))) {
+				t.Errorf("after write-group %s, go-sunspec reads %+v", w.path, got)
+			}
+		}
+	}
+
+	if code := peerClient(t, a, nil, "write-group", hostGateway, port, fx.UnitID, "--model", "705", "--point", "Crv[0].ReadOnly", "--value", "0"); code != 1 {
+		t.Errorf("write-group of a read-only curve flag: exit %d, want 1", code)
+	}
 }
 
 func peerWritesGoServer(t *testing.T, a peer) {
@@ -656,16 +798,77 @@ func TestGoWritesPeerDevice(t *testing.T) {
 	})
 }
 
-// TestWorkflowPin keeps the Interop workflow on the image of this file.
+// TestGoWritesPeerDER writes IEEE 1547 settings of the peer's DER device with
+// WritePoint, a scaled capacity setting and a curve adoption request, and the
+// peer's own client reads them back.
+func TestGoWritesPeerDER(t *testing.T) {
+	forEachPeer(t, func(t *testing.T, a peer) {
+		fx := loadFixture(t, a, "der")
+		ip, port := startDevice(t, a, "der")
+		client, err := modbus.New(modbus.Config{URL: fmt.Sprintf("tcp://127.0.0.1:%d", port), Timeout: 5 * time.Second})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := client.Open(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = client.Close() })
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		dev, err := sunspec.Open(ctx, client, &sunspec.DiscoverOptions{UnitID: fx.UnitID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings, curves := dev.ModelByID(702), dev.ModelByID(705)
+		if settings == nil || curves == nil {
+			t.Fatal("no model 702 or 705")
+		}
+		// W_SF of model 702 is 1 in the fixture: 9000 W is 900.
+		p, err := dev.WritePoint(ctx, *settings, "WMax", 9000)
+		if err != nil {
+			t.Fatalf("WritePoint WMax: %v", err)
+		}
+		if p.ScaledValue == nil || *p.ScaledValue != 9000 {
+			t.Errorf("WMax reads back %+v", p)
+		}
+		if _, err := dev.WritePoint(ctx, *curves, "AdptCrvReq", 2); err != nil {
+			t.Fatalf("WritePoint AdptCrvReq: %v", err)
+		}
+		if _, err := dev.WritePoint(ctx, *curves, "AdptCrvRslt", 2); !errors.Is(err, sunspec.ErrPointNotWritable) {
+			t.Errorf("AdptCrvRslt of model 705: %v, want ErrPointNotWritable", err)
+		}
+
+		var scan peerScan
+		if code := peerClient(t, a, &scan, "scan", ip, containerPort, fx.UnitID); code != 0 {
+			t.Fatalf("%s scan: exit %d", a.name, code)
+		}
+		for _, m := range scan.Models {
+			switch m.ID {
+			case 702:
+				if !sameRaw(uint16(900), m.Values["WMax"]) {
+					t.Errorf("%s reads WMax %v", a.name, m.Values["WMax"])
+				}
+			case 705:
+				if !sameRaw(uint16(2), m.Values["AdptCrvReq"]) {
+					t.Errorf("%s reads AdptCrvReq %v", a.name, m.Values["AdptCrvReq"])
+				}
+			}
+		}
+	})
+}
+
+// TestWorkflowPin keeps the Interop workflow on the images of this file.
 func TestWorkflowPin(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "interop.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), imageEnv+": "+defaultImage+"\n") {
-		t.Errorf("the workflow does not pin %s as %s", imageEnv, defaultImage)
-	}
-	if !regexp.MustCompile(`:v\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$`).MatchString(defaultImage) {
-		t.Errorf("%s is not pinned by digest", defaultImage)
+	for _, r := range references {
+		if !strings.Contains(string(data), r.env+": "+r.image+"\n") {
+			t.Errorf("the workflow does not pin %s as %s", r.env, r.image)
+		}
+		if !regexp.MustCompile(`:v\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$`).MatchString(r.image) {
+			t.Errorf("%s is not pinned by digest", r.image)
+		}
 	}
 }
