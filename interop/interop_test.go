@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -43,13 +44,75 @@ const (
 	relTolerance  = 1e-6
 )
 
+// otfabricImageEnv names a sunspec-interop-otfabric image: go-sunspec itself, as
+// published by otfabric/sunspec-interop. It is not a reference: the adapter
+// otfabric runs only when this names an image, and what it shows is
+// compatibility between releases of this library, not independent
+// verification. adaptersEnv restricts a run to a comma-separated subset.
+const (
+	otfabricImageEnv = "SUNSPEC_INTEROP_OTFABRIC_IMAGE"
+	adaptersEnv      = "SUNSPEC_INTEROP_ADAPTERS"
+)
+
 var fixtures = []string{"baseline", "edge", "altbase"}
 
-func image() string {
+// peer is one adapter image of sunspec-interop that go-sunspec is tested
+// against.
+type peer struct {
+	name  string
+	image string
+}
+
+// peers returns pysunspec2 (SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE overrides its
+// image) and, when SUNSPEC_INTEROP_OTFABRIC_IMAGE names one, otfabric.
+func peers(t *testing.T) []peer {
+	t.Helper()
+	all := []peer{{"pysunspec2", defaultImage}}
 	if v := os.Getenv(imageEnv); v != "" {
-		return v
+		all[0].image = v
 	}
-	return defaultImage
+	if v := os.Getenv(otfabricImageEnv); v != "" {
+		all = append(all, peer{"otfabric", v})
+	}
+	only := os.Getenv(adaptersEnv)
+	if only == "" {
+		return all
+	}
+	var out []peer
+	for _, p := range all {
+		for want := range strings.SplitSeq(only, ",") {
+			if strings.TrimSpace(want) == p.name {
+				out = append(out, p)
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatalf("%s=%q selects no adapter (otfabric needs %s)", adaptersEnv, only, otfabricImageEnv)
+	}
+	return out
+}
+
+// forEachPeer runs fn as a subtest per peer.
+func forEachPeer(t *testing.T, fn func(t *testing.T, a peer)) {
+	t.Helper()
+	requireDocker(t)
+	for _, a := range peers(t) {
+		t.Run(a.name, func(t *testing.T) { fn(t, a) })
+	}
+}
+
+// clientOperations are the client operations the image declares.
+func (a peer) clientOperations(t *testing.T) []string {
+	t.Helper()
+	out, stderr, err := docker("run", "--rm", a.image, "print-capabilities")
+	if err != nil {
+		t.Fatalf("print-capabilities: %v: %s", err, stderr)
+	}
+	var caps struct {
+		ClientOperations []string `json:"clientOperations"`
+	}
+	decode(t, out, &caps)
+	return caps.ClientOperations
 }
 
 // requireDocker skips without Docker, or fails when SUNSPEC_REQUIRE_INTEROP=1
@@ -89,9 +152,9 @@ type fixture struct {
 	BaseAddress uint16 `json:"baseAddress"`
 }
 
-func loadFixture(t *testing.T, name string) fixture {
+func loadFixture(t *testing.T, a peer, name string) fixture {
 	t.Helper()
-	out, stderr, err := docker("run", "--rm", image(), "print-fixture", name)
+	out, stderr, err := docker("run", "--rm", a.image, "print-fixture", name)
 	if err != nil {
 		t.Fatalf("print-fixture %s: %v: %s", name, err, stderr)
 	}
@@ -100,7 +163,7 @@ func loadFixture(t *testing.T, name string) fixture {
 	return fx
 }
 
-// peerModel is one model as pysunspec2 read it.
+// peerModel is one model as the peer read it.
 type peerModel struct {
 	ID      uint16         `json:"id"`
 	Address uint16         `json:"address"`
@@ -118,9 +181,9 @@ type peerScan struct {
 // peerClient runs one client operation of the image against a device reachable
 // from the container as host:port. It returns the exit code and the "result"
 // of the document.
-func peerClient(t *testing.T, into any, op, host string, port int, unit uint8, flags ...string) int {
+func peerClient(t *testing.T, a peer, into any, op, host string, port int, unit uint8, flags ...string) int {
 	t.Helper()
-	args := append([]string{"run", "--rm", "--add-host", addHost, image(), "client", op,
+	args := append([]string{"run", "--rm", "--add-host", addHost, a.image, "client", op,
 		"--host", host, "--port", strconv.Itoa(port), "--unit-id", strconv.Itoa(int(unit))}, flags...)
 	out, stderr, err := docker(args...)
 	code := 0
@@ -154,9 +217,9 @@ func peerClient(t *testing.T, into any, op, host string, port int, unit uint8, f
 // startDevice runs the image's device on a fixture. It returns its address on
 // the Docker network, where another container reaches it on containerPort, and
 // its port on this machine.
-func startDevice(t *testing.T, fixture string) (string, int) {
+func startDevice(t *testing.T, a peer, fixture string) (string, int) {
 	t.Helper()
-	out, stderr, err := docker("run", "-d", "--rm", "-p", "127.0.0.1::1502", image(), "server", "--fixture", "/fixtures/"+fixture+"/fixture.json")
+	out, stderr, err := docker("run", "-d", "--rm", "-p", "127.0.0.1::1502", a.image, "server", "--fixture", "/fixtures/"+fixture+"/fixture.json")
 	if err != nil {
 		t.Fatalf("docker run: %v: %s", err, stderr)
 	}
@@ -271,7 +334,7 @@ func near(a, b float64) bool {
 }
 
 // compareGroup compares every point of a decoded group, and of its nested
-// instances, with what pysunspec2 read.
+// instances, with what the peer read.
 func compareGroup(t *testing.T, where string, g *sunspec.DecodedGroup, raw, scaled map[string]any) {
 	t.Helper()
 	for i := range g.Points {
@@ -279,30 +342,30 @@ func compareGroup(t *testing.T, where string, g *sunspec.DecodedGroup, raw, scal
 		path := where + "." + pt.Name
 		peer, ok := raw[pt.Name]
 		if !ok {
-			t.Errorf("%s: pysunspec2 has no such point", path)
+			t.Errorf("%s: the peer has no such point", path)
 			continue
 		}
 		if peer == nil {
 			if pt.Implemented {
-				t.Errorf("%s: read %v, pysunspec2 reads not implemented", path, pt.RawValue)
+				t.Errorf("%s: read %v, the peer reads not implemented", path, pt.RawValue)
 			}
 			continue
 		}
 		if !pt.Implemented {
-			t.Errorf("%s: not implemented, pysunspec2 reads %v", path, peer)
+			t.Errorf("%s: not implemented, the peer reads %v", path, peer)
 			continue
 		}
 		if !sameRaw(pt.RawValue, peer) {
-			t.Errorf("%s: read %#v, pysunspec2 reads %v", path, pt.RawValue, peer)
+			t.Errorf("%s: read %#v, the peer reads %v", path, pt.RawValue, peer)
 		}
 		if pt.ScaledValue != nil {
 			n, ok := scaled[pt.Name].(json.Number)
 			if !ok {
-				t.Errorf("%s: scaled %v, pysunspec2 reads %v", path, *pt.ScaledValue, scaled[pt.Name])
+				t.Errorf("%s: scaled %v, the peer reads %v", path, *pt.ScaledValue, scaled[pt.Name])
 				continue
 			}
 			if f, err := n.Float64(); err != nil || !near(*pt.ScaledValue, f) {
-				t.Errorf("%s: scaled %v, pysunspec2 reads %v", path, *pt.ScaledValue, n)
+				t.Errorf("%s: scaled %v, the peer reads %v", path, *pt.ScaledValue, n)
 			}
 		}
 	}
@@ -313,7 +376,7 @@ func compareGroup(t *testing.T, where string, g *sunspec.DecodedGroup, raw, scal
 		i := seen[inst.Name]
 		seen[inst.Name]++
 		if i >= len(rawList) || i >= len(scaledList) {
-			t.Errorf("%s.%s[%d]: pysunspec2 has %d instances", where, inst.Name, i, len(rawList))
+			t.Errorf("%s.%s[%d]: the peer has %d instances", where, inst.Name, i, len(rawList))
 			continue
 		}
 		compareGroup(t, fmt.Sprintf("%s.%s[%d]", where, inst.Name, i), inst, rawList[i].(map[string]any), scaledList[i].(map[string]any))
@@ -324,17 +387,17 @@ func compareGroup(t *testing.T, where string, g *sunspec.DecodedGroup, raw, scal
 func compareDevice(t *testing.T, models []*sunspec.DecodedModel, scan *peerScan) {
 	t.Helper()
 	if len(models) != len(scan.Models) {
-		t.Fatalf("%d models, pysunspec2 reads %d", len(models), len(scan.Models))
+		t.Fatalf("%d models, the peer reads %d", len(models), len(scan.Models))
 	}
 	points := 0
 	for i, m := range models {
 		p := &scan.Models[i]
 		where := fmt.Sprintf("model %d", m.ModelID)
 		if p.Error != "" {
-			t.Errorf("%s: pysunspec2: %s", where, p.Error)
+			t.Errorf("%s: the peer: %s", where, p.Error)
 		}
 		if m.ModelID != p.ID || m.InstanceAddress != p.Address {
-			t.Errorf("%s at %d: pysunspec2 reads model %d at %d", where, m.InstanceAddress, p.ID, p.Address)
+			t.Errorf("%s at %d: the peer reads model %d at %d", where, m.InstanceAddress, p.ID, p.Address)
 			continue
 		}
 		if len(m.Warnings) > 0 {
@@ -353,8 +416,8 @@ func compareDevice(t *testing.T, models []*sunspec.DecodedModel, scan *peerScan)
 	t.Logf("%d models compared", len(models))
 }
 
-// valuesFrom builds encoder input from what pysunspec2 read: the encoder takes
-// scaled values, and a point pysunspec2 reads as not implemented is left out.
+// valuesFrom builds encoder input from what the peer read: the encoder takes
+// scaled values, and a point the peer reads as not implemented is left out.
 func valuesFrom(scaled map[string]any, top bool) *sunspec.Values {
 	v := &sunspec.Values{}
 	for name, value := range scaled {
@@ -374,10 +437,10 @@ func valuesFrom(scaled map[string]any, top bool) *sunspec.Values {
 	return v
 }
 
-// peerRegisters is the map pysunspec2 encodes for a fixture.
-func peerRegisters(t *testing.T, name string) []uint16 {
+// peerRegisters is the map the peer encodes for a fixture.
+func peerRegisters(t *testing.T, a peer, name string) []uint16 {
 	t.Helper()
-	out, stderr, err := docker("run", "--rm", image(), "print-registers", name)
+	out, stderr, err := docker("run", "--rm", a.image, "print-registers", name)
 	if err != nil {
 		t.Fatalf("print-registers %s: %v: %s", name, err, stderr)
 	}
@@ -388,7 +451,7 @@ func peerRegisters(t *testing.T, name string) []uint16 {
 	return doc.Registers
 }
 
-// servedFrom lays out a Server with what pysunspec2 reads from a fixture.
+// servedFrom lays out a Server with what the peer reads from a fixture.
 func servedFrom(t *testing.T, fx fixture, scan *peerScan) *sunspec.Server {
 	t.Helper()
 	models := make([]sunspec.ServerModel, len(scan.Models))
@@ -402,57 +465,59 @@ func servedFrom(t *testing.T, fx fixture, scan *peerScan) *sunspec.Server {
 	return srv
 }
 
-// TestGoReadsPysunspec2Device reads a device pysunspec2 encoded through the
-// public client path, and compares every point with what pysunspec2's own
-// client reads from the same device.
-func TestGoReadsPysunspec2Device(t *testing.T) {
-	requireDocker(t)
-	for _, name := range fixtures {
-		t.Run(name, func(t *testing.T) {
-			fx := loadFixture(t, name)
-			ip, port := startDevice(t, name)
-			var scan peerScan
-			if code := peerClient(t, &scan, "scan", ip, containerPort, fx.UnitID); code != 0 {
-				t.Fatalf("pysunspec2 scan: exit %d", code)
-			}
-			if scan.BaseAddress != fx.BaseAddress {
-				t.Fatalf("pysunspec2 finds base address %d, fixture %d", scan.BaseAddress, fx.BaseAddress)
-			}
-			compareDevice(t, openDevice(t, port, fx.UnitID), &scan)
-		})
-	}
+// TestGoReadsPeerDevice reads a device the peer encoded through the public
+// client path, and compares every point with what the peer's own client reads
+// from the same device.
+func TestGoReadsPeerDevice(t *testing.T) {
+	forEachPeer(t, func(t *testing.T, a peer) {
+		for _, name := range fixtures {
+			t.Run(name, func(t *testing.T) {
+				fx := loadFixture(t, a, name)
+				ip, port := startDevice(t, a, name)
+				var scan peerScan
+				if code := peerClient(t, a, &scan, "scan", ip, containerPort, fx.UnitID); code != 0 {
+					t.Fatalf("%s scan: exit %d", a.name, code)
+				}
+				if scan.BaseAddress != fx.BaseAddress {
+					t.Fatalf("%s finds base address %d, fixture %d", a.name, scan.BaseAddress, fx.BaseAddress)
+				}
+				compareDevice(t, openDevice(t, port, fx.UnitID), &scan)
+			})
+		}
+	})
 }
 
-// TestPysunspec2ReadsGoServer serves through Server the values pysunspec2
-// read, and compares the registers with what pysunspec2 encodes, then what
-// pysunspec2's client reads from the Server with what go-sunspec reads.
-func TestPysunspec2ReadsGoServer(t *testing.T) {
-	requireDocker(t)
-	for _, name := range fixtures {
-		t.Run(name, func(t *testing.T) {
-			fx := loadFixture(t, name)
-			ip, _ := startDevice(t, name)
-			var want peerScan
-			if code := peerClient(t, &want, "scan", ip, containerPort, fx.UnitID); code != 0 {
-				t.Fatalf("pysunspec2 scan of its own device: exit %d", code)
-			}
-			srv := servedFrom(t, fx, &want)
-			port := startServer(t, srv)
-			var got peerScan
-			if code := peerClient(t, &got, "scan", hostGateway, port, fx.UnitID); code != 0 {
-				t.Fatalf("pysunspec2 scan of Server: exit %d", code)
-			}
-			if got.BaseAddress != fx.BaseAddress {
-				t.Fatalf("pysunspec2 finds base address %d, fixture %d", got.BaseAddress, fx.BaseAddress)
-			}
-			compareDevice(t, openDevice(t, port, fx.UnitID), &got)
-			compareRegisters(t, srv, peerRegisters(t, name))
-		})
-	}
+// TestPeerReadsGoServer serves through Server the values the peer read, and
+// compares the registers with what the peer encodes, then what the peer's
+// client reads from the Server with what go-sunspec reads.
+func TestPeerReadsGoServer(t *testing.T) {
+	forEachPeer(t, func(t *testing.T, a peer) {
+		for _, name := range fixtures {
+			t.Run(name, func(t *testing.T) {
+				fx := loadFixture(t, a, name)
+				ip, _ := startDevice(t, a, name)
+				var want peerScan
+				if code := peerClient(t, a, &want, "scan", ip, containerPort, fx.UnitID); code != 0 {
+					t.Fatalf("%s scan of its own device: exit %d", a.name, code)
+				}
+				srv := servedFrom(t, fx, &want)
+				port := startServer(t, srv)
+				var got peerScan
+				if code := peerClient(t, a, &got, "scan", hostGateway, port, fx.UnitID); code != 0 {
+					t.Fatalf("%s scan of Server: exit %d", a.name, code)
+				}
+				if got.BaseAddress != fx.BaseAddress {
+					t.Fatalf("%s finds base address %d, fixture %d", a.name, got.BaseAddress, fx.BaseAddress)
+				}
+				compareDevice(t, openDevice(t, port, fx.UnitID), &got)
+				compareRegisters(t, srv, peerRegisters(t, a, name))
+			})
+		}
+	})
 }
 
 // compareRegisters compares the Server's image, model by model, with the map
-// pysunspec2 encodes for the same values.
+// the peer encodes for the same values.
 func compareRegisters(t *testing.T, srv *sunspec.Server, want []uint16) {
 	t.Helper()
 	i := 2 // the marker
@@ -463,34 +528,43 @@ func compareRegisters(t *testing.T, srv *sunspec.Server, want []uint16) {
 		}
 		regs := m.RawRegisters
 		if i+len(regs) > len(want) {
-			t.Fatalf("model %d: past the end of pysunspec2's %d registers", m.ModelID, len(want))
+			t.Fatalf("model %d: past the end of the peer's %d registers", m.ModelID, len(want))
 		}
 		for j, r := range regs {
 			if want[i+j] != r {
-				t.Errorf("model %d offset %d: %#04x, pysunspec2 encodes %#04x", m.ModelID, j, r, want[i+j])
+				t.Errorf("model %d offset %d: %#04x, the peer encodes %#04x", m.ModelID, j, r, want[i+j])
 			}
 		}
 		i += len(regs)
 	}
 	if i != len(want)-2 {
-		t.Errorf("%d registers before the end model, pysunspec2 has %d", i, len(want)-2)
+		t.Errorf("%d registers before the end model, the peer has %d", i, len(want)-2)
 	}
 }
 
-// TestPysunspec2WritesGoServer writes a read-write point with pysunspec2's
-// client, and is refused on a read-only point.
-func TestPysunspec2WritesGoServer(t *testing.T) {
-	requireDocker(t)
+// TestPeerWritesGoServer writes a read-write point with the peer's client,
+// and is refused on a read-only point. A peer whose client does not write
+// (otfabric: go-sunspec's client reads only) is skipped.
+func TestPeerWritesGoServer(t *testing.T) {
+	forEachPeer(t, func(t *testing.T, a peer) {
+		if !slices.Contains(a.clientOperations(t), "write") {
+			t.Skipf("%s declares no client operation write", a.name)
+		}
+		peerWritesGoServer(t, a)
+	})
+}
+
+func peerWritesGoServer(t *testing.T, a peer) {
 	const (
 		model = uint16(123)
 		point = "WMaxLimPct"
 		value = 750
 	)
-	fx := loadFixture(t, "baseline")
-	ip, _ := startDevice(t, "baseline")
+	fx := loadFixture(t, a, "baseline")
+	ip, _ := startDevice(t, a, "baseline")
 	var want peerScan
-	if code := peerClient(t, &want, "scan", ip, containerPort, fx.UnitID); code != 0 {
-		t.Fatalf("pysunspec2 scan: exit %d", code)
+	if code := peerClient(t, a, &want, "scan", ip, containerPort, fx.UnitID); code != 0 {
+		t.Fatalf("%s scan: exit %d", a.name, code)
 	}
 	srv := servedFrom(t, fx, &want)
 	port := startServer(t, srv)
@@ -498,11 +572,11 @@ func TestPysunspec2WritesGoServer(t *testing.T) {
 	var res struct {
 		Value json.Number `json:"value"`
 	}
-	if code := peerClient(t, &res, "write", hostGateway, port, fx.UnitID, "--model", strconv.Itoa(int(model)), "--point", point, "--value", strconv.Itoa(value)); code != 0 {
+	if code := peerClient(t, a, &res, "write", hostGateway, port, fx.UnitID, "--model", strconv.Itoa(int(model)), "--point", point, "--value", strconv.Itoa(value)); code != 0 {
 		t.Fatalf("write: exit %d", code)
 	}
 	if res.Value.String() != strconv.Itoa(value) {
-		t.Errorf("pysunspec2 reads back %s", res.Value)
+		t.Errorf("%s reads back %s", a.name, res.Value)
 	}
 	var got *sunspec.DecodedPoint
 	for _, m := range openDevice(t, port, fx.UnitID) {
@@ -519,7 +593,7 @@ func TestPysunspec2WritesGoServer(t *testing.T) {
 		t.Fatalf("after the write, go-sunspec reads %+v", got)
 	}
 
-	if code := peerClient(t, nil, "write", hostGateway, port, fx.UnitID, "--model", "103", "--point", "W", "--value", "1"); code != 1 {
+	if code := peerClient(t, a, nil, "write", hostGateway, port, fx.UnitID, "--model", "103", "--point", "W", "--value", "1"); code != 1 {
 		t.Errorf("write of a read-only point: exit %d, want 1", code)
 	}
 }

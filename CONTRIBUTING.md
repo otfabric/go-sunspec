@@ -110,6 +110,20 @@ Chaos and stress tests are seeded. A failing run logs its seed; replay it with `
 
 When one of these tests fails, find out whether the library, go-modbus or the test is wrong before touching the assertion. A defect in the library gets a fix and a regression test; do not weaken an invariant to get a green run.
 
+### Interop tests
+
+The `interop` package (build tag `interop`, so it is not part of `go test ./...`) runs go-sunspec against pysunspec2, as published by [otfabric/sunspec-interop](https://github.com/otfabric/sunspec-interop), in both directions. The image is consumed by digest; nothing of that repository is cloned or built here, and the scenarios and assertions are this repository's ([INTEROPERABILITY.md](INTEROPERABILITY.md)).
+
+```bash
+# Against pysunspec2 (needs Docker; the Interop workflow runs this on every push)
+make interop
+
+# Against the latest published go-sunspec (the Self-interop workflow, run by hand)
+SUNSPEC_INTEROP_ADAPTERS=otfabric SUNSPEC_INTEROP_OTFABRIC_IMAGE=ghcr.io/otfabric/sunspec-interop-otfabric:latest make interop
+```
+
+The adapter `otfabric` runs only when `SUNSPEC_INTEROP_OTFABRIC_IMAGE` names an image. Its client does not write, so `TestPeerWritesGoServer` skips it. A pass against it is go-sunspec on both sides, not independent verification.
+
 ### Documentation
 
 When you change **public API or behaviour**, update:
