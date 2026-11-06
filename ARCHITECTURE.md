@@ -1,6 +1,6 @@
 # Architecture
 
-go-sunspec reads and serves SunSpec devices over Modbus. It does not implement Modbus: every transport concern belongs to go-modbus. File by file: [README](README.md#project-structure).
+go-sunspec reads, writes and serves SunSpec devices over Modbus. It does not implement Modbus: every transport concern belongs to go-modbus. File by file: [README](README.md#project-structure).
 
 ## Layers
 
@@ -8,7 +8,7 @@ Matches the import graph:
 
 ```
 devicefile ──────┐        sunspec (root)
-                 │          │    detect, discover, decode, encode, device reads, Server
+                 │          │    detect, discover, decode, encode, device reads, WritePoint, Server
                  ▼          ▼
               registry   go-modbus, go-modbus/batch, go-modbus/sunspec
 ```
@@ -21,7 +21,7 @@ The caller creates and closes the `*modbus.Client`; see [API.md](API.md#ownershi
 
 ## Reads
 
-A model longer than 125 registers takes several requests, so a read is not atomic across them ([LIMITATIONS.md](LIMITATIONS.md#reading)). Every read goes to the device: there is no cache.
+A model longer than 125 registers takes several requests, so a read is not atomic across them ([LIMITATIONS.md](LIMITATIONS.md#reading)). Every read goes to the device: there is no cache. `Device.WritePoint` reads the model, writes one point and reads the model again: separate requests, not a transaction, so a device that changes the point's scale factor in between gets the value scaled with the old one.
 
 ## Platforms
 

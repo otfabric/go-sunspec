@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-// Package sunspec reads and serves SunSpec devices over Modbus.
+// Package sunspec reads, writes and serves SunSpec devices over Modbus.
 //
 // It discovers SunSpec model chains, decodes standard point types, resolves
 // scale factors, and decodes nested and repeating groups. In the other
-// direction it encodes point values into a model's registers and serves a
-// device built from such models. Schemas for standard models are compiled
+// direction it encodes point values into a model's registers, writes a
+// device's read-write points (Device.WritePoint) and serves a device built
+// from such models. Schemas for standard models are compiled
 // into package registry.
 //
 // # Scope
@@ -26,12 +27,14 @@
 //   - Device.ReadAll / ReadModel / ReadModelByID / ReadPoint — read and decode
 //   - Device.ReadModels — read several models, adjacent ones sharing requests
 //   - Device.ModelByID / ModelsByID — find model instances by ID
+//   - Device.WritePoint — write one read-write point (FC 16) and read it back
 //   - DecodeModel — decode a register slice against a schema (no I/O)
 //   - EncodeModel — build a model's registers from values by point name (no I/O)
 //   - NewServer — lay out a device from models and values; the Server is a
 //     go-modbus RequestHandler, and its SetPoint / Update methods change
 //     values while it is served
 //   - ReadFunctionCodes — the function codes of a client that cannot write
+//     (WritePoint then fails)
 //
 // Package devicefile reads and writes a device as a JSON file: what a Server
 // is built from, and what a Device that was read can be written as.

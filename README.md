@@ -7,7 +7,7 @@
 [![Code Coverage](https://codecov.io/gh/otfabric/go-sunspec/graph/badge.svg)](https://codecov.io/gh/otfabric/go-sunspec)
 [![Release](https://img.shields.io/github/v/release/otfabric/go-sunspec?label=release)](https://github.com/otfabric/go-sunspec/releases)
 
-**go-sunspec is a Go library for reading and serving SunSpec devices over Modbus.** It discovers the SunSpec models a solar inverter, energy meter, battery or other DER device exposes, reads them over Modbus TCP, RTU or ASCII, and decodes every point into typed, scaled values with units — using the official [SunSpec Alliance](https://sunspec.org/) model definitions compiled into your program. The same definitions work the other way: build a device from models and point values and [serve it](#serving-a-device) over Modbus TCP, as a simulator or as the SunSpec interface of your own equipment.
+**go-sunspec is a Go library for reading, writing and serving SunSpec devices over Modbus.** It discovers the SunSpec models a solar inverter, energy meter, battery or other DER device exposes, reads them over Modbus TCP, RTU or ASCII, decodes every point into typed, scaled values with units, and writes control points by name — using the official [SunSpec Alliance](https://sunspec.org/) model definitions compiled into your program. The same definitions work the other way: build a device from models and point values and [serve it](#serving-a-device) over Modbus TCP, as a simulator or as the SunSpec interface of your own equipment.
 
 Use it to build solar monitoring, energy-management (EMS), data-logging, DER-integration and device-simulation software in Go, or use [`sunspecctl`](https://github.com/otfabric/sunspecctl), the command-line tool built on it, to inspect or simulate a device from the terminal. It is pure Go with no CGO, built on [otfabric/go-modbus](https://github.com/otfabric/go-modbus).
 
@@ -27,7 +27,8 @@ Use it to build solar monitoring, energy-management (EMS), data-logging, DER-int
 - **Every Modbus transport** — Modbus TCP, serial RTU and ASCII (RS-485), TLS, UDP and serial-to-Ethernet bridges, with retries, timeouts, logging and metrics configured on the go-modbus client.
 - **Offline decoding and encoding** — `DecodeModel` decodes a register slice with no I/O, and `EncodeModel` builds one from point values: useful for captures, simulators and tests.
 - **Serve a device** — `Server` lays out a model chain from values given by point name, serves it through go-modbus, accepts client writes to writable points and lets you change values while it runs.
-- **Read-only by construction** — The client side sends two Modbus function codes, Read Holding Registers and Read Input Registers. `ReadFunctionCodes()` hands them to a go-modbus client that then refuses everything else before it is sent.
+- **Write controls by name** — `Device.WritePoint` sets one read-write point (a power limit, an enable flag) in engineering units or by symbol name: it applies the device's current scale factor, writes only that point's registers and reads it back. Points the model defines as read-only are refused before anything is sent.
+- **Read-only when you want it** — Everything except `WritePoint` sends two Modbus function codes, Read Holding Registers and Read Input Registers. `ReadFunctionCodes()` hands them to a go-modbus client that then refuses everything else, `WritePoint` included, before it is sent.
 - **Device files** — Package [`devicefile`](#device-files) reads and writes a SunSpec device as a JSON file: capture a real device, edit it, serve it again. The format has a JSON Schema.
 - **A CLI built on it** — [`sunspecctl`](https://github.com/otfabric/sunspecctl) detects, lists, reads and polls SunSpec devices, with table or JSON output, and serves simulated devices from a file.
 
@@ -83,7 +84,7 @@ sunspecctl read   --url tcp://192.168.1.100:502    # read and decode everything
 - **Solar PV monitoring** — Read AC/DC power, energy, voltage, current, frequency and operating state from inverters that implement SunSpec Modbus, whatever the manufacturer.
 - **Energy metering** — Read SunSpec meters (models 201–204 and 211–214) for import/export energy and per-phase power.
 - **Battery and storage systems** — Read state of charge, capacity and status from storage models (124, 713, 801–809).
-- **Energy management systems (EMS) and DER integration** — Feed SunSpec data into controllers, dashboards, MQTT, Prometheus or time-series databases from Go services.
+- **Energy management systems (EMS) and DER integration** — Feed SunSpec data into controllers, dashboards, MQTT, Prometheus or time-series databases from Go services, and set controls such as an inverter's power limit (`WritePoint`).
 - **Commissioning and troubleshooting** — Check what a device really exposes with [`sunspecctl`](https://github.com/otfabric/sunspecctl) before writing integration code.
 - **Testing and simulation** — Serve a simulated inverter, meter or battery to develop and test an EMS or a SCADA integration without hardware; decode captured registers offline.
 - **SunSpec interface for your own device** — Expose measurements and settings of a Go-controlled device as standard SunSpec models.
@@ -130,6 +131,7 @@ registry.Count()         // 112
 - [API](#api)
   - [Discovery](#discovery)
   - [Reading](#reading)
+  - [Writing a point](#writing-a-point)
   - [Decoded values](#decoded-values)
   - [Serial (RTU) and other transports](#serial-rtu-and-other-transports)
   - [A read-only client](#a-read-only-client)
@@ -257,6 +259,24 @@ for _, mppt := range device.ModelsByID(160) {
 ```
 
 Each read of a model includes its ID and length registers and checks them against the discovery result: a device whose model chain changed since `Discover` is reported with `ErrModelChanged` instead of being decoded with a stale layout.
+
+### Writing a point
+
+```go
+// Limit an inverter to 62.5 % of its rated power (model 123, Immediate
+// Controls). The value is in percent: WMaxLimPct_SF scales it.
+controls := device.ModelByID(123)
+point, err := device.WritePoint(ctx, *controls, "WMaxLimPct", 62.5)
+if errors.Is(err, sunspec.ErrPointNotWritable) {
+    // read-only in the model definition: nothing was sent
+}
+fmt.Printf("Limit now %g %%\n", *point.ScaledValue)
+
+// Enum points take a symbol name.
+_, err = device.WritePoint(ctx, *controls, "WMaxLim_Ena", "ENABLED")
+```
+
+`WritePoint` (since v0.10.0) writes one point of a model's top-level group. It reads the model first, so the value is scaled with the device's current scale factor and a changed model chain is caught (`ErrModelChanged`), then sends that point's registers, and only those, with Write Multiple Registers (FC 16), and returns the point as the device reports it afterwards. Points the model defines as read-only, count points, models without a schema and devices on input registers fail with `ErrPointNotWritable` before anything is sent; a value that does not fit fails with an `*EncodeError`; a device that refuses the write returns its Modbus exception. DER controls change how equipment connected to the grid behaves: see [SECURITY.md](SECURITY.md). Details: [API.md](API.md#writing-a-point).
 
 ### Decoded values
 
