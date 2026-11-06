@@ -1,5 +1,22 @@
 # go-sunspec Releases
 
+## v0.10.0
+
+**Date:** 2026-11-06
+**Previous release:** v0.9.0
+
+### Added
+
+- `Device.WritePoint`: writes one top-level point of a model instance and returns it as the device reports it afterwards. It reads the model first (header check, the device's current scale factor), encodes the value as `EncodeModel` does (engineering value, symbol names, string, or `[]uint16`) and writes only the point's registers with FC 16. It is the one method of the client side that writes; everything else still sends FC 03 and 04 only, and a client built with `AllowedFunctionCodes: ReadFunctionCodes()` refuses it.
+- `ErrPointNotWritable`: `WritePoint` refuses, before sending anything, a point whose schema access is not `RW`, a count point, a model without a schema or with more registers on the device than the schema describes, and a `Device` on input registers.
+
+### Tests
+
+- `write_test.go` (end-to-end against `Server` over TCP: every value form, every refusal, a device exception, a read-only client, input registers, a failing read back), `TestChaosWritePoint` (faults on the wire: no stray register changes, no value nobody asked for, recovery) and the fuzz target `FuzzWritePoint`.
+- Interop: `TestGoWritesPeerDevice` writes pysunspec2's device and reads the values back with pysunspec2's client. The interop package runs, by hand, against the published go-sunspec image (`SUNSPEC_INTEROP_OTFABRIC_IMAGE`, the Self-interop workflow).
+
+---
+
 ## v0.9.0
 
 **Date:** 2026-11-05

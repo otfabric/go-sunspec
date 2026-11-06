@@ -319,7 +319,7 @@ Pass the device's Modbus address as `DiscoverOptions.UnitID`.
 
 ### A read-only client
 
-`Detect`, `Discover` and every `Device` method only read registers: Modbus function codes 03 and 04. A monitoring program can make that a property of its connection, so that no code path, its own or a dependency's, can write to the device:
+`Detect`, `Discover` and every `Device` method except `WritePoint` only read registers: Modbus function codes 03 and 04. A monitoring program can make that a property of its connection, so that no code path, its own or a dependency's, can write to the device (`WritePoint` then fails with `modbus.ErrFunctionCodeNotAllowed`):
 
 ```go
 client, err := modbus.New(modbus.Config{
@@ -362,7 +362,7 @@ client, err := modbus.New(modbus.Config{
 
 ### Errors
 
-Use `errors.Is` / `errors.As` with package sentinels (`ErrNotSunSpec`, `ErrUnknownModel`, `ErrPointNotFound`, `ErrDecode`, `ErrPartialRead`, `ErrModelChanged`, and on the serving side `ErrEncode`, `ErrValueOutOfRange`, `ErrModelLayout`) and `*DecodeError` / `*EncodeError`. Package `devicefile` adds `ErrSyntax` / `*SyntaxError` and `ErrInvalid` / `*ModelError`. Details: [ERRORS.md](ERRORS.md).
+Use `errors.Is` / `errors.As` with package sentinels (`ErrNotSunSpec`, `ErrUnknownModel`, `ErrPointNotFound`, `ErrDecode`, `ErrPartialRead`, `ErrModelChanged`, `ErrPointNotWritable`, and on the serving side `ErrEncode`, `ErrValueOutOfRange`, `ErrModelLayout`) and `*DecodeError` / `*EncodeError`. Package `devicefile` adds `ErrSyntax` / `*SyntaxError` and `ErrInvalid` / `*ModelError`. Details: [ERRORS.md](ERRORS.md).
 
 ## Serving a device
 
@@ -488,7 +488,7 @@ They are still discovered and listed. `ReadModel` returns them with raw register
 
 ### Can go-sunspec write SunSpec points (controls)?
 
-Not as a client: `Device` reads and decodes, and sends nothing but read requests (see [A read-only client](#a-read-only-client)). You can write registers with the same go-modbus client (`client.WriteRegisters`) using the address and offset from the discovered model and its schema; `EncodeModel` gives you the registers for values by point name. On the serving side it is the other way round: a [`Server`](#serving-a-device) accepts writes from clients to the points SunSpec defines as writable.
+Yes, one point at a time: `Device.WritePoint(ctx, inst, "WMaxLimPct", 75.0)` (since v0.10.0) reads the model, encodes the value with the device's current scale factor and writes the point's registers with FC 16. It refuses points the schema does not define as `RW` with `ErrPointNotWritable` before sending anything ([API.md](API.md#writing-a-point)). Every other method only reads (see [A read-only client](#a-read-only-client)). On the serving side, a [`Server`](#serving-a-device) accepts writes from clients to the points SunSpec defines as writable.
 
 ### Can I simulate a SunSpec device?
 
@@ -530,6 +530,7 @@ go-sunspec/
 ├── decode_point.go    Per-type point decoders
 ├── decode_sf.go       Scale factor resolution
 ├── device.go          ReadAll, ReadModel, ReadModelByID, ReadPoint
+├── write.go           WritePoint: the one write of the client side
 ├── read_models.go     ReadModels (adjacent models in shared requests)
 ├── read.go            Batch register reader (>125 splitting)
 ├── encode.go          Values, EncodeModel(), DecodedModel.Values()

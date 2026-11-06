@@ -12,8 +12,9 @@
 //
 // This package is a domain layer on top of [github.com/otfabric/go-modbus].
 // Transport, retries, logging, metrics, and connection lifecycle belong to the
-// injected *modbus.Client (which Detect, Discover and Device only ever ask to
-// read registers: function codes 03 and 04), and on the serving side to the *modbus.Server a
+// injected *modbus.Client (which Detect, Discover and Device ask to read
+// registers, function codes 03 and 04, and only Device.WritePoint to write,
+// function code 16), and on the serving side to the *modbus.Server a
 // Server is handed to. This package does not open or close connections; the
 // one exception is the convenience Server.Serve, which runs a modbus.Server
 // for the duration of a context.

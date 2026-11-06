@@ -34,10 +34,12 @@ device, err := sunspec.Discover(ctx, client, &sunspec.DiscoverOptions{UnitID: 1}
 
 ### A read-only client
 
-The client side of this package only reads registers: `Detect`, `Discover`,
-`Open` and every `Device` method send Read Holding Registers (FC 03) or Read
-Input Registers (FC 04), depending on `DiscoverOptions.RegType`, and nothing
-else. `ReadFunctionCodes` returns those two codes:
+The client side of this package reads registers: `Detect`, `Discover`,
+`Open` and every `Device` method except `WritePoint` send Read Holding
+Registers (FC 03) or Read Input Registers (FC 04), depending on
+`DiscoverOptions.RegType`, and nothing else. `WritePoint` (since v0.10.0) is
+the one method that writes ([Writing a point](#writing-a-point)).
+`ReadFunctionCodes` returns the two read codes:
 
 ```go
 func ReadFunctionCodes() []modbus.FunctionCode // FC 03 and FC 04; a new slice each call
@@ -56,7 +58,8 @@ client, err := modbus.New(modbus.Config{
 Such a client refuses every other function code (writes, coils, diagnostics,
 device identification) with an error wrapping
 `modbus.ErrFunctionCodeNotAllowed` before a byte is sent. Everything in this
-package works through it unchanged. The restriction belongs to the client:
+package except `WritePoint` works through it unchanged; `WritePoint` then fails
+with that error. The restriction belongs to the client:
 `Discover` and `Device` take any `*modbus.Client` and do not check it.
 
 ## Concurrency
@@ -109,6 +112,7 @@ func (d *Device) ReadModel(ctx context.Context, inst ModelInstance) (*DecodedMod
 func (d *Device) ReadModelByID(ctx context.Context, modelID uint16) (*DecodedModel, error)
 func (d *Device) ReadModels(ctx context.Context, insts []ModelInstance) ([]ModelResult, error)
 func (d *Device) ReadPoint(ctx context.Context, inst ModelInstance, pointName string) (*DecodedPoint, error)
+func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string, value any) (*DecodedPoint, error) // since v0.10.0
 func (d *Device) ModelByID(id uint16) *ModelInstance
 func (d *Device) ModelsByID(id uint16) []ModelInstance
 ```
@@ -124,6 +128,36 @@ When the device no longer reports that ID and length at that address the read
 fails with `ErrModelChanged`; the returned `DecodedModel` holds the data
 registers, undecoded. A model that needs several requests is read from its
 header address in chunks of 125 registers.
+
+### Writing a point
+
+```go
+var ErrPointNotWritable = errors.New("sunspec: point not writable")
+
+p, err := dev.WritePoint(ctx, *dev.ModelByID(123), "WMaxLimPct", 75.0) // percent, as WMaxLimPct_SF scales it
+```
+
+`WritePoint` writes one point of the top-level group of a model instance and
+returns the point as the device reports it afterwards. It reads the model
+first: the header is checked as by `ReadModel` (`ErrModelChanged`), and the
+value is encoded with the device's current scale factor, as `EncodeModel`
+encodes it ([Values by point type](#values-by-point-type)): the engineering
+value of a scaled point, a symbol name, bitfield names, a string, or
+`[]uint16` with the point's registers. It then sends the point's registers,
+and only those, in one Write Multiple Registers request (FC 16), and reads the
+model again.
+
+| Refused before anything is sent | Error |
+|---|---|
+| Schema access not `RW`, the count point of a group, a model without a schema or with more registers on the device than the schema describes, a `Device` on input registers | `ErrPointNotWritable` |
+| A name that is not a point of the top-level group | `ErrPointNotFound` |
+| A value the encoder refuses | `*EncodeError` (`ErrEncode`, `ErrValueOutOfRange`) |
+| A client built with `AllowedFunctionCodes: ReadFunctionCodes()` | `modbus.ErrFunctionCodeNotAllowed` |
+
+A device that refuses the write returns its Modbus exception
+(`modbus.ErrIllegalDataAddress`, say). The read before and the write are two
+requests: a device that changes the scale factor in between gets the value
+scaled with the old one. Points of repeating groups cannot be written.
 
 ### Reading several models
 
@@ -649,7 +683,8 @@ including the ID and L registers.
 
 ## Core types
 
-- `Device` — client + unit + discovery result
+- `Device` — client + unit + discovery result; `WritePoint` the one write
+- `ErrPointNotWritable` — a write `WritePoint` refuses (since v0.10.0)
 - `DiscoverOptions`, `DetectionResult`, `DiscoveryResult`, `ModelInstance`
 - `DecodedModel`, `DecodedGroup`, `DecodedPoint`
 - `DecodeError` — typed decode failure (see ERRORS.md)

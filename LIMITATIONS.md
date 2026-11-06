@@ -18,7 +18,7 @@ What go-sunspec does not do, and what has not been verified. For the API contrac
 
 ## Reading
 
-- The client does not write. It sends function codes 03 and 04 only; writing controls is left to the caller, with the go-modbus client ([README](README.md#can-go-sunspec-write-sunspec-points-controls)).
+- The client reads with function codes 03 and 04 only, except `WritePoint`, which writes one top-level `RW` point with FC 16. It does not write points of repeating groups, several points in one request, or with FC 06. Between its read of the scale factor and the write the device may change it.
 - **A model read is not atomic across requests.** Modbus allows 125 registers per request, so a longer model takes several, and a device can change between them. `ReadModel` compares the ID and length registers with discovery, not the data.
 - `DecodeModel` does no such comparison: it uses the schema it is given, whatever the ID and length registers say.
 - `ReadPoint` returns the first point of that name, so for a repeating group the one of the first instance.

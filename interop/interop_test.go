@@ -598,6 +598,64 @@ func peerWritesGoServer(t *testing.T, a peer) {
 	}
 }
 
+// TestGoWritesPeerDevice writes read-write points of the peer's device with
+// WritePoint, a scaled one and an enum, and the peer's own client reads them
+// back. A read-only point is refused before anything is sent.
+func TestGoWritesPeerDevice(t *testing.T) {
+	forEachPeer(t, func(t *testing.T, a peer) {
+		fx := loadFixture(t, a, "baseline")
+		ip, port := startDevice(t, a, "baseline")
+		client, err := modbus.New(modbus.Config{URL: fmt.Sprintf("tcp://127.0.0.1:%d", port), Timeout: 5 * time.Second})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := client.Open(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = client.Close() })
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		dev, err := sunspec.Open(ctx, client, &sunspec.DiscoverOptions{UnitID: fx.UnitID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		controls := dev.ModelByID(123)
+		if controls == nil {
+			t.Fatal("no model 123")
+		}
+		// WMaxLimPct_SF is -1 in the fixture: 62.5 % is 625.
+		p, err := dev.WritePoint(ctx, *controls, "WMaxLimPct", 62.5)
+		if err != nil {
+			t.Fatalf("WritePoint WMaxLimPct: %v", err)
+		}
+		if p.ScaledValue == nil || *p.ScaledValue != 62.5 {
+			t.Errorf("WMaxLimPct reads back %+v", p)
+		}
+		if _, err := dev.WritePoint(ctx, *controls, "OutPFSet_Ena", "ENABLED"); err != nil {
+			t.Fatalf("WritePoint OutPFSet_Ena: %v", err)
+		}
+		if _, err := dev.WritePoint(ctx, *dev.ModelByID(103), "W", 1); !errors.Is(err, sunspec.ErrPointNotWritable) {
+			t.Errorf("W of model 103: %v, want ErrPointNotWritable", err)
+		}
+
+		var scan peerScan
+		if code := peerClient(t, a, &scan, "scan", ip, containerPort, fx.UnitID); code != 0 {
+			t.Fatalf("%s scan: exit %d", a.name, code)
+		}
+		for _, m := range scan.Models {
+			if m.ID != 123 {
+				continue
+			}
+			if !sameRaw(uint16(625), m.Values["WMaxLimPct"]) || !sameRaw(uint16(1), m.Values["OutPFSet_Ena"]) {
+				t.Errorf("%s reads WMaxLimPct %v, OutPFSet_Ena %v", a.name, m.Values["WMaxLimPct"], m.Values["OutPFSet_Ena"])
+			}
+			if !sameRaw(uint16(1), m.Values["Conn"]) {
+				t.Errorf("%s: Conn changed to %v", a.name, m.Values["Conn"])
+			}
+		}
+	})
+}
+
 // TestWorkflowPin keeps the Interop workflow on the image of this file.
 func TestWorkflowPin(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "interop.yml"))

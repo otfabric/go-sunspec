@@ -35,4 +35,4 @@ The end-to-end tier reads the library's own `Server`, behind a real go-modbus TC
 
 ## Fuzz regressions
 
-`make fuzz` discovers the targets: `FuzzDecodeModel`, `FuzzDiscover` (discovery and reads of arbitrary registers behind the marker, over loopback TCP), `FuzzServerRequest` (arbitrary holding register requests to a `Server`) and `devicefile.FuzzParse`. A failing input is written to `testdata/fuzz/<target>/` of the package. Commit it with the fix: `go test` replays it from then on.
+`make fuzz` discovers the targets: `FuzzDecodeModel`, `FuzzDiscover` (discovery and reads of arbitrary registers behind the marker, over loopback TCP), `FuzzServerRequest` (arbitrary holding register requests to a `Server`), `FuzzWritePoint` (`WritePoint` of arbitrary names and values over loopback TCP: documented errors only, a refused write changes nothing, an accepted one only the point's registers) and `devicefile.FuzzParse`. A failing input is written to `testdata/fuzz/<target>/` of the package. Commit it with the fix: `go test` replays it from then on.

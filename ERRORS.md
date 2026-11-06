@@ -27,6 +27,8 @@ or re-exports the ones that matter at the SunSpec layer.
 | Models do not fit the address space; update would change a model's length | `ErrModelLayout` |
 | `Server` model index out of range; `ServerModel` without registers and without schema | `ErrUnknownModel` |
 | Client write the `Server` refuses | Modbus exception 2 to the client; no Go error |
+| `WritePoint` of a point that is not writable | `ErrPointNotWritable`; nothing is sent |
+| `WritePoint` the device refuses | The Modbus exception (go-modbus error), wrapped |
 | Function code a read-only client does not allow | Error wrapping `modbus.ErrFunctionCodeNotAllowed` (go-modbus); nothing is sent. The reads of this package are never refused by `ReadFunctionCodes()` |
 | Device file is not valid JSON, has an unknown member, a wrong type, a point twice | `*devicefile.SyntaxError` matching `devicefile.ErrSyntax` |
 | Device file model without ID, with registers and points, without schema; unsupported kind of value; unit ID 0 | `*devicefile.ModelError` (or a plain error for the unit ID) matching `devicefile.ErrInvalid` |
@@ -57,7 +59,8 @@ if errors.As(err, &dec) {
 |----------|---------|
 | `ErrNotSunSpec` | Detect/Discover found no SunSpec marker at probed bases |
 | `ErrUnknownModel` | `ReadModelByID`: ID absent from `Device.Discovery.Models` |
-| `ErrPointNotFound` | `ReadPoint`: name not present in the decoded model |
+| `ErrPointNotFound` | `ReadPoint`: name not present in the decoded model; `WritePoint`: name not a point of the top-level group |
+| `ErrPointNotWritable` | `WritePoint`: schema access not `RW`, a count point, a model without a schema or with more registers on the device than the schema describes, or a `Device` on input registers; nothing is sent |
 | `ErrDecode` | Decode failure (usually via `*DecodeError`) |
 | `ErrPartialRead` | Chunked read returned early; some registers may be present |
 | `batch.ErrNotAttempted` (go-modbus) | `ReadModels`: the instance was not read because an earlier request timed out, the connection failed or the context ended; the error also wraps that cause |
