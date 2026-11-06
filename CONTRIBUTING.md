@@ -122,7 +122,7 @@ make interop
 SUNSPEC_INTEROP_ADAPTERS=otfabric SUNSPEC_INTEROP_OTFABRIC_IMAGE=ghcr.io/otfabric/sunspec-interop-otfabric:latest make interop
 ```
 
-The adapter `otfabric` runs only when `SUNSPEC_INTEROP_OTFABRIC_IMAGE` names an image. Its client does not write, so `TestPeerWritesGoServer` skips it. A pass against it is go-sunspec on both sides, not independent verification.
+The adapter `otfabric` runs only when `SUNSPEC_INTEROP_OTFABRIC_IMAGE` names an image. `TestPeerWritesGoServer` skips a peer whose client declares no `write` (an image built from go-sunspec before v0.10.0). A pass against it is go-sunspec on both sides, not independent verification.
 
 ### Documentation
 
