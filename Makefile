@@ -46,7 +46,7 @@ cross: ## Cross-compile without cgo for the supported platforms
 		CGO_ENABLED=0 GOOS=$${p%/*} GOARCH=$${p#*/} go build ./... || exit 1; \
 	done
 
-interop: ## Interop suite against pysunspec2 (otfabric/sunspec-interop; Docker)
+interop: ## Interop suite against pysunspec2 and cB-Sigma (otfabric/sunspec-interop; Docker)
 	@SUNSPEC_REQUIRE_INTEROP=1 go test -count=1 -tags interop -timeout 15m $(INTEROP_TESTFLAGS) ./interop/...
 
 e2e: ## End-to-end suite: the served device read through the client path over loopback TCP

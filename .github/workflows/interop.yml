@@ -1,8 +1,9 @@
 name: Interop
 run-name: "Interop (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
 
-# Runs go-sunspec against pysunspec2, the SunSpec Alliance's Python stack, as
-# otfabric/sunspec-interop publishes it. The image is consumed by digest
+# Runs go-sunspec against the independent SunSpec stacks otfabric/sunspec-interop
+# publishes: pysunspec2, the SunSpec Alliance's Python stack, and cB-Sigma's Go
+# sunspec and sunspec-sim. The images are consumed by digest
 # (interop/interop_test.go): nothing of sunspec-interop is cloned or built here.
 
 on:
@@ -20,7 +21,8 @@ permissions:
 env:
   GOWORK: "off"
   # Keep in step with interop/interop_test.go (TestWorkflowPin).
-  SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE: ghcr.io/otfabric/sunspec-interop-pysunspec2:v0.1.0@sha256:4e7cae22cff30b282966cbf1c777016286b623afecba85030011040cb86c4a17
+  SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE: ghcr.io/otfabric/sunspec-interop-pysunspec2:v0.3.0@sha256:0f34e284b3110c3123449a6c7390f9bc7860a50a2e54adc08245c994514a7e18
+  SUNSPEC_INTEROP_CBSIGMA_IMAGE: ghcr.io/otfabric/sunspec-interop-cbsigma:v0.3.0@sha256:77c23c3fd3a6253ea25173e55f83238b076070ee53c051f493228c207d344d42
 
 concurrency:
   group: interop-${{ github.ref }}
@@ -28,7 +30,7 @@ concurrency:
 
 jobs:
   interop:
-    name: pysunspec2
+    name: pysunspec2, cbsigma
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -36,14 +38,16 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Pull the image
+      - name: Pull the images
         run: |
-          for attempt in 1 2 3 4 5; do
-            docker pull --quiet "${SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE}" && break
-            [[ "${attempt}" == 5 ]] && exit 1
-            sleep $((attempt * 15))
+          for image in "${SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE}" "${SUNSPEC_INTEROP_CBSIGMA_IMAGE}"; do
+            for attempt in 1 2 3 4 5; do
+              docker pull --quiet "${image}" && break
+              [[ "${attempt}" == 5 ]] && exit 1
+              sleep $((attempt * 15))
+            done
+            docker run --rm "${image}" version | tee -a "$GITHUB_STEP_SUMMARY"
           done
-          docker run --rm "${SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE}" version | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the interop suite
         run: |
           set -o pipefail

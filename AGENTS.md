@@ -2,7 +2,7 @@
 
 ## What this is
 
-Pure Go library that reads SunSpec devices over Modbus (detect, discover, decode) and serves them (encode, `Server`, device files), on top of go-modbus. Profile: **protocol-library**. Current release: see RELEASE.md. It is tested against its own `Server` and fixture, and against pysunspec2 on a limited set of models (INTEROPERABILITY.md); nothing is certified (LIMITATIONS.md). The CLI is the separate repository `otfabric/sunspecctl`.
+Pure Go library that reads SunSpec devices over Modbus (detect, discover, decode) and serves them (encode, `Server`, device files), on top of go-modbus. Profile: **protocol-library**. Current release: see RELEASE.md. It is tested against its own `Server` and fixture, and against pysunspec2 and cB-Sigma (sunspec, sunspec-sim) on a limited set of models (INTEROPERABILITY.md); nothing is certified (LIMITATIONS.md). The CLI is the separate repository `otfabric/sunspecctl`.
 
 ## Organisation standards
 

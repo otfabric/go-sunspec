@@ -16,7 +16,7 @@ How to run each tier. No hardware is needed. What each layer is for, and how to 
 | Interop | `make interop` (build tag `interop`) | Docker | yes, Interop workflow and daily |
 | Model drift | `make models-check` | network | weekly workflow, reports only |
 
-`make interop` runs [`interop/`](interop/) against pysunspec2 in Docker ([INTEROPERABILITY.md](INTEROPERABILITY.md)). With `SUNSPEC_REQUIRE_INTEROP=1`, which `make interop` and the workflow set, missing Docker is a failure and not a skip. `SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE` replaces the pinned image. `SUNSPEC_INTEROP_OTFABRIC_IMAGE` adds the adapter `otfabric`, a released go-sunspec (the manual Self-interop workflow; never a default and never independent evidence), and `SUNSPEC_INTEROP_ADAPTERS` restricts a run to a comma-separated subset (`pysunspec2`, `otfabric`).
+`make interop` runs [`interop/`](interop/) against pysunspec2 and cB-Sigma in Docker ([INTEROPERABILITY.md](INTEROPERABILITY.md)). With `SUNSPEC_REQUIRE_INTEROP=1`, which `make interop` and the workflow set, missing Docker is a failure and not a skip. `SUNSPEC_INTEROP_PYSUNSPEC2_IMAGE` and `SUNSPEC_INTEROP_CBSIGMA_IMAGE` replace the pinned images. `SUNSPEC_INTEROP_OTFABRIC_IMAGE` adds the adapter `otfabric`, a released go-sunspec (the manual Self-interop workflow; never a default and never independent evidence), and `SUNSPEC_INTEROP_ADAPTERS` restricts a run to a comma-separated subset (`pysunspec2`, `cbsigma`, `otfabric`).
 
 `make coverage-pkg-check` fails when one package is below `COVER_PKG_MIN` (90); CI runs it in the `coverage-packages` job.
 
