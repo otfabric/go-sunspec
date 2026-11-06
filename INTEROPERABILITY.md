@@ -6,13 +6,15 @@
 
 | Test | Direction | Shows |
 |---|---|---|
-| `TestGoReadsPysunspec2Device` | go-sunspec reads a device pysunspec2 encoded | The model chain, and every raw and scaled point, match what pysunspec2's client reads from the same device |
-| `TestPysunspec2ReadsGoServer` | pysunspec2 reads `Server` | pysunspec2 finds the device and reads the same points as go-sunspec, and the registers equal those pysunspec2 encodes for the same values |
-| `TestPysunspec2WritesGoServer` | pysunspec2 writes `Server` | A write of a read-write point lands; a write of a read-only point is refused |
+| `TestGoReadsPeerDevice` | go-sunspec reads a device pysunspec2 encoded | The model chain, and every raw and scaled point, match what pysunspec2's client reads from the same device |
+| `TestPeerReadsGoServer` | pysunspec2 reads `Server` | pysunspec2 finds the device and reads the same points as go-sunspec, and the registers equal those pysunspec2 encodes for the same values |
+| `TestPeerWritesGoServer` | pysunspec2 writes `Server` | A write of a read-write point lands; a write of a read-only point is refused |
 
 Each runs on the fixtures of sunspec-interop: models 1, 101, 103, 111, 120, 123, 160 and 701, at base addresses 0, 40000 and 50000, with a repeating group, not-implemented values, 32-bit floats, 64-bit accumulators and scale factors from -3 to 3.
 
 What that does not show: the device side of the image is pysunspec2's register encoding behind a small Modbus TCP layer of the harness, because pysunspec2 has no server, so it says nothing about Modbus transport. Other models, vendor models, nested groups, Modbus RTU and real devices are not in the suite. go-sunspec's client does not write, so no test covers a write from go-sunspec.
+
+The same tests run against `sunspec-interop-otfabric`, a released go-sunspec behind the same contract, when `SUNSPEC_INTEROP_OTFABRIC_IMAGE` names it: the manual Self-interop workflow runs a commit against `:latest`, to find a change on the wire that breaks an earlier release. Its client does not write, so the write test skips it. A pass is not independent verification: it is go-sunspec on both sides, and it is not in the table above.
 
 What the code is built on:
 
