@@ -60,7 +60,7 @@ if errors.As(err, &dec) {
 | `ErrNotSunSpec` | Detect/Discover found no SunSpec marker at probed bases |
 | `ErrUnknownModel` | `ReadModelByID`: ID absent from `Device.Discovery.Models` |
 | `ErrPointNotFound` | `ReadPoint`: name not present in the decoded model; `WritePoint`: name not a point of the top-level group |
-| `ErrPointNotWritable` | `WritePoint`: schema access not `RW`, a count point, a model without a schema or a `Device` on input registers; nothing is sent |
+| `ErrPointNotWritable` | `WritePoint`: schema access not `RW`, a count point, a model without a schema or with more registers on the device than the schema describes, or a `Device` on input registers; nothing is sent |
 | `ErrDecode` | Decode failure (usually via `*DecodeError`) |
 | `ErrPartialRead` | Chunked read returned early; some registers may be present |
 | `batch.ErrNotAttempted` (go-modbus) | `ReadModels`: the instance was not read because an earlier request timed out, the connection failed or the context ended; the error also wraps that cause |

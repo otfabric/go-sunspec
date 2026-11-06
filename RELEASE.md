@@ -8,7 +8,7 @@
 ### Added
 
 - `Device.WritePoint`: writes one top-level point of a model instance and returns it as the device reports it afterwards. It reads the model first (header check, the device's current scale factor), encodes the value as `EncodeModel` does (engineering value, symbol names, string, or `[]uint16`) and writes only the point's registers with FC 16. It is the one method of the client side that writes; everything else still sends FC 03 and 04 only, and a client built with `AllowedFunctionCodes: ReadFunctionCodes()` refuses it.
-- `ErrPointNotWritable`: `WritePoint` refuses, before sending anything, a point whose schema access is not `RW`, a count point, a model without a schema and a `Device` on input registers.
+- `ErrPointNotWritable`: `WritePoint` refuses, before sending anything, a point whose schema access is not `RW`, a count point, a model without a schema or with more registers on the device than the schema describes, and a `Device` on input registers.
 
 ### Tests
 

@@ -12,8 +12,9 @@ import (
 
 // ErrPointNotWritable indicates a write the client refuses before sending
 // anything: a point whose schema access is not "RW", the count point of a
-// group (it defines the layout), a point of a model without a schema, or a
-// device served in input registers, which Modbus cannot write.
+// group (it defines the layout), a point of a model without a schema or
+// whose device holds more registers than the schema describes, or a device
+// served in input registers, which Modbus cannot write.
 var ErrPointNotWritable = errors.New("sunspec: point not writable")
 
 // WritePoint writes one top-level point of a model instance and returns the
@@ -79,20 +80,15 @@ func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string
 	if err != nil {
 		return nil, err
 	}
-	if len(regs) != int(inst.Header.Length)+2 || offset+size > len(regs) {
+	if len(regs) != int(inst.Header.Length)+2 {
+		// A device whose model is longer than its schema describes (data
+		// past the last group instance): the encoder cannot reproduce what
+		// the device holds, so the layout of the write is not known.
 		return nil, fmt.Errorf("%w: model %d encodes to %d registers, the device has %d",
-			ErrModelChanged, inst.Header.ID, len(regs), int(inst.Header.Length)+2)
+			ErrPointNotWritable, inst.Header.ID, len(regs), int(inst.Header.Length)+2)
 	}
 	if err := d.Client.WriteRegisters(ctx, d.UnitID, mustUint16(int(inst.Header.StartAddress)+offset), regs[offset:offset+size]); err != nil {
 		return nil, fmt.Errorf("sunspec: write %s of model %d: %w", name, inst.Header.ID, err)
 	}
-
-	after, err := d.ReadModel(ctx, inst)
-	if err != nil {
-		return nil, err
-	}
-	if p := after.Group.Point(name); p != nil {
-		return p, nil
-	}
-	return nil, fmt.Errorf("%w: point %q in model %d", ErrPointNotFound, name, inst.Header.ID)
+	return d.ReadPoint(ctx, inst, name)
 }

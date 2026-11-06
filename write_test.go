@@ -162,6 +162,22 @@ func TestWritePointRefusals(t *testing.T) {
 	}
 }
 
+// A device whose model holds a register past what its schema describes: the
+// encoder cannot reproduce the model, so nothing is written.
+func TestWritePointModelLongerThanSchema(t *testing.T) {
+	srv, err := NewServer(&ServerOptions{BaseAddress: 40000}, ServerModel{ID: 64010, Registers: []uint16{11, 22, 0, 7, 125, 0xFFFF, 0x6162, 0x6364, 99}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, _ := writeTarget(t, srv, modbus.Config{})
+	if _, err := dev.WritePoint(testCtx(t), dev.Discovery.Models[0], "Rw", 5); !errors.Is(err, ErrPointNotWritable) {
+		t.Errorf("error %v, want ErrPointNotWritable", err)
+	}
+	if got, _ := srv.Model(0); got.RawRegisters[1] != 22 {
+		t.Errorf("Rw changed to %d", got.RawRegisters[1])
+	}
+}
+
 func TestWritePointRefusedByTheDevice(t *testing.T) {
 	refuse := func(context.Context, *ServerWrite) error { return modbus.ErrIllegalDataValue }
 	dev, srv := writeTarget(t, ctlServer(t, &ServerOptions{OnWrite: refuse}), modbus.Config{})

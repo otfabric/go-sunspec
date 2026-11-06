@@ -149,7 +149,7 @@ model again.
 
 | Refused before anything is sent | Error |
 |---|---|
-| Schema access not `RW`, the count point of a group, a model without a schema, a `Device` on input registers | `ErrPointNotWritable` |
+| Schema access not `RW`, the count point of a group, a model without a schema or with more registers on the device than the schema describes, a `Device` on input registers | `ErrPointNotWritable` |
 | A name that is not a point of the top-level group | `ErrPointNotFound` |
 | A value the encoder refuses | `*EncodeError` (`ErrEncode`, `ErrValueOutOfRange`) |
 | A client built with `AllowedFunctionCodes: ReadFunctionCodes()` | `modbus.ErrFunctionCodeNotAllowed` |
