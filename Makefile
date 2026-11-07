@@ -1,4 +1,4 @@
-.PHONY: help all generate generate-check sync models-check build check test fuzz bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean cross e2e interop coverage-pkg-check
+.PHONY: help all generate generate-check sync models-check build check test fuzz bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean cross e2e interop coverage-pkg-check docs-check
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -20,6 +20,9 @@ TEST_PKGS     := ./...
 COVERAGE_MIN  := 90
 # Per-package floor (TEST-012): what the weakest package measures now, rounded down.
 COVER_PKG_MIN := 90
+
+# docsync release of docs-check (DOC-008).
+DOCSYNC_VERSION := v0.2.0
 
 all: check build ## Run all checks and build the library
 
@@ -57,7 +60,7 @@ coverage-pkg-check: coverage-check ## Fail when a package is below COVER_PKG_MIN
 	END { for (k in n) { p = k; sub(/\/[^\/]*$$/, "", p); s[p] += n[k]; if (k in h) c[p] += n[k] } \
 	for (p in s) { v = 100 * c[p] / s[p]; if (v < m) { printf "%s: %.1f%% < %s%%\n", p, v, m; bad = 1 } } exit bad }' coverage.out
 
-check: fmt fmt-check vet lint lint-ci vuln test coverage-pkg-check ## Run all checks (format, vet, lint, test, coverage)
+check: fmt fmt-check vet lint lint-ci vuln test coverage-pkg-check docs-check ## Run all checks (format, vet, lint, test, coverage)
 
 test: ## Run unit and integration tests with race detector
 	@echo "Running tests (race detector)"
@@ -142,6 +145,10 @@ lint-ci: ## Run golangci-lint (uses .golangci.yml)
 vuln: ## Run govulncheck
 	@echo "Running govulncheck"
 	@govulncheck ./...
+
+# The documents against the code (DOC-008): docsync, as docs-check.yml runs it.
+docs-check: ## Check that the documents agree with the code (docsync)
+	@go run github.com/otfabric/docsync@$(DOCSYNC_VERSION) check .
 
 build: generate ## Regenerate the registry and build all packages
 	@echo "Building library"
