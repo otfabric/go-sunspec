@@ -22,7 +22,7 @@ COVERAGE_MIN  := 90
 COVER_PKG_MIN := 90
 
 # docsync release of docs-check (DOC-008).
-DOCSYNC_VERSION := v0.3.0
+DOCSYNC_VERSION := v0.3.1
 
 all: check build ## Run all checks and build the library
 
