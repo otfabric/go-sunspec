@@ -602,7 +602,7 @@ not been verified, is in [LIMITATIONS.md](LIMITATIONS.md).
 ## Requirements
 
 - Go 1.26+
-- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.5.0+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.11.1+
 
 The tests of package `devicefile` validate files against its JSON Schema with [santhosh-tekuri/jsonschema](https://github.com/santhosh-tekuri/jsonschema) v6. It is a test dependency only: programs that import go-sunspec do not build it.
 

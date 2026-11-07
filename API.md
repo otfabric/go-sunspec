@@ -666,7 +666,7 @@ addresses of the device.
 
 ## Registry
 
-```go
+```text
 func registry.ByID(id uint16) *ModelMeta
 func registry.Known(id uint16) bool
 func registry.Count() int
