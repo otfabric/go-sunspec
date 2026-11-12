@@ -1,5 +1,16 @@
 # go-sunspec Releases
 
+## v0.10.1
+
+**Date:** 2026-11-13
+**Previous release:** v0.10.0
+
+### Changed
+
+- Built on go-modbus v1.14.5 (was v1.11.1) and go-serial v0.3.0. go-modbus adds `Config.Dialer`, runs a re-dial under the request's context and wraps dial and TLS handshake errors with `modbus: dial <network> <addr>:` (`errors.Is` and `errors.As` still reach the cause); go-serial rejects out-of-range serial parameters instead of truncating them. No API change in go-sunspec.
+
+---
+
 ## v0.10.0
 
 **Date:** 2026-11-06

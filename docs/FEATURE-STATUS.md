@@ -1,6 +1,6 @@
 # Support and feature matrix
 
-What go-sunspec supports and how it is tested. Status: v0.10.0. API contract: [API.md](../API.md). Out of scope and unverified: [LIMITATIONS.md](../LIMITATIONS.md).
+What go-sunspec supports and how it is tested. Status: v0.10.1. API contract: [API.md](../API.md). Out of scope and unverified: [LIMITATIONS.md](../LIMITATIONS.md).
 
 None of this is a conformance claim: nothing is certified.
 
@@ -8,7 +8,7 @@ None of this is a conformance claim: nothing is certified.
 
 | go-sunspec | Go | go-modbus | Models | Supported |
 |---|---|---|---|---|
-| **v0.10.0** | 1.26 or later (CI: 1.26 and 1.27) | v1.11.1 | 112, snapshot of sunspec/models | **yes** |
+| **v0.10.1** | 1.26 or later (CI: 1.26 and 1.27) | v1.14.5 | 112, snapshot of sunspec/models | **yes** |
 
 ## 2. Platforms
 
