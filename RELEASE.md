@@ -1,5 +1,16 @@
 # go-sunspec Releases
 
+## v0.10.2
+
+**Date:** 2026-11-13
+**Previous release:** v0.10.1
+
+### Changed
+
+- Built on go-modbus v1.15.0 (was v1.14.5): serial-framed carriers (`rtuovertcp`, `asciiovertcp`, `rtuoverudp`) close and redial their socket after a failed or mismatched exchange, `rtu` and `ascii` clients resynchronise the line, and the `tcp+tls` server, at `MaxClients`, replaces the oldest connection still in its TLS handshake instead of refusing the new one, with a default handshake timeout of 10 s (was 30 s). No API change in go-sunspec.
+
+---
+
 ## v0.10.1
 
 **Date:** 2026-11-13
