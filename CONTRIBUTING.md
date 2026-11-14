@@ -115,7 +115,7 @@ When one of these tests fails, find out whether the library, go-modbus or the te
 The `interop` package (build tag `interop`, so it is not part of `go test ./...`) runs go-sunspec against pysunspec2 and cB-Sigma's sunspec and sunspec-sim, as published by [otfabric/sunspec-interop](https://github.com/otfabric/sunspec-interop), in both directions. The images are consumed by digest; nothing of that repository is cloned or built here, and the scenarios and assertions are this repository's ([INTEROPERABILITY.md](INTEROPERABILITY.md)).
 
 ```bash
-# Against pysunspec2 and cB-Sigma (needs Docker; the Interop workflow runs this on every push)
+# Against pysunspec2 and cB-Sigma (needs Docker; the Interop workflow runs this on every pull request)
 make interop
 
 # Against the latest published go-sunspec (the Self-interop workflow, run by hand)
