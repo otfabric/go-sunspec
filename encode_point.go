@@ -305,8 +305,8 @@ func encodeValue(pm *registry.PointMeta, val any, sf *int16) ([]uint16, error) {
 }
 
 // encodeNotImplemented fills dst, the registers of pm, with the "not
-// implemented" value of the point's type. A point of an unsupported type is
-// left zero.
+// implemented" value of the point's type (SPECIFICATIONS.md, "Not-implemented
+// values"). A point of an unsupported type is left zero.
 func encodeNotImplemented(pm *registry.PointMeta, dst []uint16) error {
 	if err := checkSize(pm); err != nil {
 		return err

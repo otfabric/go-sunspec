@@ -1,5 +1,55 @@
 # go-sunspec Releases
 
+## v0.11.0
+
+**Date:** 2026-11-14
+**Previous release:** v0.10.5
+
+No exported identifier is added, removed or changed. Four behaviours change; they are listed under Breaking with what a caller does to keep the old one. Built on go-modbus v1.16.0 (was v1.15.3).
+
+### Breaking
+
+- **`ServerOptions.OnWrite` runs without the `Server`'s lock held.** It may now block and call every method of the `Server`; requests of other connections are served meanwhile. Before, it ran with the `Server` locked, one call at a time, and must not call its methods. What a caller has to allow for:
+  - A write takes effect when `OnWrite` returns nil and the model has not changed since the write was checked. When another client write or an update (`SetPoint`, `SetValues`, `Update`, `SetRegisters`) changed that model while `OnWrite` ran, the write is refused with `modbus.ErrServerDeviceFailure` (exception 4) and nothing changes; the client may send it again. `OnWrite` has then seen a write that did not take effect. An `OnWrite` that only validates needs no change. One that acts on what it sees should not treat its own nil as "stored".
+  - Writes on different connections call `OnWrite` at the same time. An `OnWrite` that relied on the calls taking turns takes a lock of its own.
+  - A `Server` without `OnWrite` behaves as before.
+- **The function given to `Server.Update` (and so `SetPoint` and `SetValues`) runs without the `Server`'s lock held and can be called more than once.** It works on a copy of the values; when the model changed while it ran, `Update` calls it again with a copy of the new values and stores only the last result, so no update and no client write is lost. It may call the `Server`'s methods to read. Before, it ran once, with the `Server` locked. A function that only changes the `*Values` it is given, which is what the documentation asked for, needs no change. One that counts its calls or does something that must happen once moves that out of the function.
+- **`Device.WritePoint` refuses an engineering value for a point whose scale factor the device does not report as a usable value.** When the schema names a scale factor point and the read before the write finds it not implemented, or outside -10..10, `WritePoint` fails with `ErrPointNotWritable`, saying why, and sends nothing. Before, the value was stored unscaled and `WritePoint` returned nil: 75 for a `WMaxLimPct` of 75 %, where a scale factor of -1 means 750. To write the registers as before, give them as `[]uint16`: `WritePoint(ctx, inst, "WMaxLimPct", []uint16{75})`. Points with a literal scale factor, points whose scale factor is usable, and a nil value (which sets the point to its not-implemented value and is not scaled) are written as before. pysunspec2 does not write a computed value either when the scale factor has no value ([SPECIFICATIONS.md](SPECIFICATIONS.md#scale-factors)).
+- **`devicefile.File.ServerModels` checks the group structure of a model against its schema.** A nested group the schema does not have at that place, and more than 65535 group instances in one model (no model holds them: it has at most 65535 data registers), are now errors of `ServerModels`: a `*ModelError` whose cause is the `*sunspec.EncodeError`. Before, `ServerModels` returned such models and the encoder refused them in `File.Server` or `NewServer`, after every instance had been converted. For `File.Server` the same files are refused as before: `errors.Is(err, sunspec.ErrEncode)` and `errors.As` with `*sunspec.EncodeError` still hold, `errors.Is(err, devicefile.ErrInvalid)` and `*devicefile.ModelError` now hold too, and the message starts with `models[<i>] (model <id>):`. A caller that passed the result of `ServerModels` to its own `NewServer` call gets the error one call earlier. `Group.Values` is unchanged.
+
+### Added
+
+- `make models-verify`: checks `models/` against `models/SHA256SUMS`; a file that was changed, is missing or is not listed fails. CI runs it in the `generate` job.
+- `.github/workflows/nightly.yml`: every night each fuzz target runs for 5 minutes (a failing input is uploaded), and the tests run as 386 binaries, where an `int` has 32 bits.
+- [SPECIFICATIONS.md](SPECIFICATIONS.md): which source each rule of the decoder, the encoder and `WritePoint` follows (the model definitions' schema, pysunspec2, the interop suite), and the test that pins it. It says where no source was identified: the edition and the clauses of the SunSpec specification are not recorded yet.
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `models/LICENSE`: the SunSpec model definitions are under the Apache License 2.0, and the licence text is now next to them.
+- The release workflow builds and tests sunspecctl and sunspec-explorer against the release candidate before it tags (`consumers`).
+
+### Changed
+
+- `models/` records where it comes from: the upstream commit (`90b4a331dcca1d6eac69c1bead952fddcc5852e0` of sunspec/models, 2026-08-20), the date of retrieval and the SHA-256 of every file ([models/README.md](models/README.md), `models/SHA256SUMS`). No model file changed: the commit was found by comparing the git blob hash of each of the 113 JSON files with the history of sunspec/models, and all of them match that commit. `sync-models.sh` now takes every file from one commit, checks each against the hash upstream lists for it before replacing anything, and writes the checksums and the commit.
+- `Server.Serve` documents what it returns when a request is still being served five seconds after its context ended: an error matching `context.DeadlineExceeded`. The behaviour is not new.
+- The callback contract of `OnWrite` and `Update` is documented in full: which goroutine, blocking, which `Server` methods may be called, what happens when one does not return normally (API.md, "The OnWrite contract" and "Updates").
+- `SunSpecDefaultBaseAddresses` documents that it is go-modbus's slice, not a copy: changing an element changes the default of every detection in the process.
+- Built on go-modbus v1.16.0 (was v1.15.3). For a `Server` served by `Serve`: application code the Modbus server calls that does not return normally, the logger and the metrics hooks included, is logged with its stack and handled as an error of that request, and `Stop` or `Shutdown` called from a handler returns. For a `Device`: a callback of the client (metrics, retry policy, dialer) that does not return normally is recovered and the client method returns an error, where the value reached the caller before (go-modbus RELEASE.md, v1.16.0, Breaking).
+- docs/FEATURE-STATUS.md names v0.11.0 and go-modbus v1.16.0 and lists vendor models as served from `ServerModel.Registers`; the `ReadFunctionCodes` documentation and the README no longer say that every `Device` method only reads, or that `WritePoint` works through a read-only client.
+
+### Fixed
+
+- What `OnWrite` changes in the `ServerWrite` it is given is not stored. `ServerWrite.Model` shared its registers with what the `Server` was about to store, so a change made there, also to a read-only point, became the device's content. `Registers`, `Points` and `Model` are now copies that belong to `OnWrite`.
+- `File.ServerModels` and `File.Server` take memory in proportion to what a model can hold, not to what a file lists. A file of the maximum size holding only group instances was converted in full, and copied again, before the encoder refused the model: about 75 bytes per byte of file for `Parse` and `File.Server` together (1.25 GB for 16 MiB), now about 29 (0.49 GB), nearly all of it `Parse` ([LIMITATIONS.md](LIMITATIONS.md#memory)). The text that names a group instance in an error is built only for an error.
+- A schema built by the caller whose group length, point offset or point size is so large that their sum does not fit an `int` is reported like any other schema that does not fit the registers: a warning from `DecodeModel`, a `*EncodeError` from `EncodeModel`. The schemas of the registry were never affected.
+- A 32-bit count point above the number of registers a model can hold decodes the instances the registers hold on every platform. Where an `int` has 32 bits, a count of 2147483648 or more decoded no instance. The warning for such a count now gives it as 65537.
+
+### Tests
+
+- `server_callback_test.go`: the lifecycle rows that apply, with channels and no sleeps. A callback that calls the `Server` (`TestL09…`), a callback that blocks while other clients read and write (`TestL11…`), an `OnWrite` that ends `Serve` (`TestL10OnWriteEndsServe`), `Serve` cut short (`TestL15ServeShutdownCutShort`), an `OnWrite` that does not return normally, the ownership of `ServerWrite`, and `Update` running again after a change. TESTING.md has the matrix L1 to L16 with the reason for every row that does not apply.
+- `TestWritePointScaleFactor`: scale factors -11, -10, -1, 0, 10, 11, ±32767 and not implemented; a refused value sends no write, counted at the device.
+- Allocation budgets: `TestDecodeModelAllocationBudget` (every registry model; the heaviest at 65535 data registers), `TestDecodeCountAllocationBudget`, `TestFileAllocationBudget` (a file of `MaxFileSize`). Boundaries: `TestServerModelsInstanceLimit`, `TestServerModelsGroupsFollowTheSchema`, `TestSchemaPointBounds`, `TestSchemaGroupLengthBounds`, `TestCountValueBounds`, `TestDecodeCountBeyondAnInt32`.
+- The leak check compares goroutines one by one, by ID and stack, with those that existed before the test, instead of counting them. `TestChaosWritePoint` no longer sleeps before its last write: the chaos proxy closes its connections and waits until the server has closed its end of each (`settle`).
+
+---
+
 ## v0.10.5
 
 **Date:** 2026-11-14

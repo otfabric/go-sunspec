@@ -17,7 +17,9 @@ devicefile ──────┐        sunspec (root)
 
 ## Ownership and goroutines
 
-The caller creates and closes the `*modbus.Client`; see [API.md](API.md#ownership-and-lifecycle). `Device` methods are safe for concurrent use to the same extent as that client. `Server` is a go-modbus `RequestHandler`: it runs on go-modbus's server goroutines and starts none of its own for serving. An update or accepted write replaces a model's registers atomically under the `Server`'s lock, and `ServerOptions.OnWrite` runs under that lock.
+The caller creates and closes the `*modbus.Client`; see [API.md](API.md#ownership-and-lifecycle). `Device` methods are safe for concurrent use to the same extent as that client. `Server` is a go-modbus `RequestHandler`: it runs on go-modbus's server goroutines and starts none of its own for serving. An update or accepted write replaces a model's registers atomically under the `Server`'s lock.
+
+No callback runs under that lock (CONC-R02; since v0.11.0). Each served model has a generation counter that every update and every accepted write moves on. `ServerOptions.OnWrite` and the function given to `Update` work on a copy taken at one generation, outside the lock, and the result is stored under the lock only if the generation is still the same. Otherwise a client write is refused with exception 4, since the model `OnWrite` judged is not the model any more, and `Update` runs its function again on the new values, since an update must not be lost. A `Server` without `OnWrite` applies a write in one locked step. The contract of both callbacks (goroutine, blocking, re-entry, what does not return normally) is in [API.md](API.md#the-onwrite-contract).
 
 ## Reads
 

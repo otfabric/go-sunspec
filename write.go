@@ -13,8 +13,10 @@ import (
 // ErrPointNotWritable indicates a write the client refuses before sending
 // anything: a point whose schema access is not "RW", the count point of a
 // group (it defines the layout), a point of a model without a schema or
-// whose device holds more registers than the schema describes, or a device
-// served in input registers, which Modbus cannot write.
+// whose device holds more registers than the schema describes, a device
+// served in input registers, which Modbus cannot write, and (since v0.11.0)
+// an engineering value for a point whose scale factor the device does not
+// report as a usable value.
 var ErrPointNotWritable = errors.New("sunspec: point not writable")
 
 // WritePoint writes one top-level point of a model instance and returns the
@@ -35,6 +37,15 @@ var ErrPointNotWritable = errors.New("sunspec: point not writable")
 // *EncodeError. A device that refuses the write returns its Modbus
 // exception (modbus.ErrIllegalDataAddress, say).
 //
+// A point whose schema names a scale factor point is written only when the
+// device reports that scale factor, in the read before the write, as a usable
+// value: implemented and within -10..10. Otherwise the engineering value
+// cannot be converted to the device's registers, and WritePoint fails with
+// ErrPointNotWritable, saying why, before anything is sent. A []uint16 value
+// is not scaled and is written as the point's registers whatever the scale
+// factor, and so is a nil value, which sets the point to its not-implemented
+// value; before v0.11.0 every value was then written unscaled.
+//
 // A client built with AllowedFunctionCodes: ReadFunctionCodes() cannot
 // write: WritePoint then fails with modbus.ErrFunctionCodeNotAllowed.
 func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string, value any) (*DecodedPoint, error) {
@@ -49,6 +60,7 @@ func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string
 	}
 	top := inst.Schema.Group
 	var size, offset int
+	var sf string
 	found := false
 	for i := range top.Points {
 		pm := &top.Points[i]
@@ -63,7 +75,7 @@ func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string
 				return nil, fmt.Errorf("%w: %s of model %d counts the instances of %s", ErrPointNotWritable, name, inst.Header.ID, g.Name)
 			}
 		}
-		size, offset, found = pm.Size, pm.Offset, true
+		size, offset, sf, found = pm.Size, pm.Offset, pm.SF, true
 		break
 	}
 	if !found {
@@ -73,6 +85,12 @@ func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string
 	dm, err := d.ReadModel(ctx, inst)
 	if err != nil {
 		return nil, err
+	}
+	if _, raw := value.([]uint16); !raw && value != nil && sf != "" {
+		if reason := unusableSF(dm, sf); reason != "" {
+			return nil, fmt.Errorf("%w: %s of model %d is scaled by %s, %s; give its registers as []uint16 to write them unscaled",
+				ErrPointNotWritable, name, inst.Header.ID, sf, reason)
+		}
 	}
 	values := dm.Values()
 	values.Set(name, value)
@@ -91,4 +109,27 @@ func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string
 		return nil, fmt.Errorf("sunspec: write %s of model %d: %w", name, inst.Header.ID, err)
 	}
 	return d.ReadPoint(ctx, inst, name)
+}
+
+// unusableSF says why the scale factor sf of a top-level point of dm cannot
+// scale a value, or returns "" when it can: a literal exponent, or a sunssf
+// point of the top-level group that is implemented and within -10..10. It
+// resolves the scale factor as the decoder does for a point that is
+// implemented, whatever the point itself holds now.
+func unusableSF(dm *DecodedModel, sf string) string {
+	if _, ok := literalSF(sf); ok {
+		return ""
+	}
+	if dm.Group == nil || dm.Group.Point(sf) == nil {
+		return "which the model as read does not hold"
+	}
+	v, ok := (&scope{group: dm.Group}).scaleFactor(sf)
+	switch {
+	case !ok:
+		return "which the device reports as not implemented"
+	case !validScaleFactor(v):
+		return fmt.Sprintf("which the device reports as %d, outside %d..%d", v, minScaleFactor, maxScaleFactor)
+	default:
+		return ""
+	}
 }

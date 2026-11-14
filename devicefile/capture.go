@@ -104,7 +104,7 @@ func reproduces(m *Model, dm *sunspec.DecodedModel) bool {
 	if err != nil {
 		return false
 	}
-	values, err := file.Models[0].values("")
+	values, err := file.Models[0].Values()
 	if err != nil {
 		return false
 	}

@@ -5,6 +5,7 @@ package sunspec
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -64,8 +65,33 @@ type ServerOptions struct {
 	// modbus.ErrIllegalDataValue to refuse a value; an error that is not a
 	// Modbus exception is reported as a server device failure).
 	//
-	// OnWrite runs while the Server is locked, so that the write is atomic.
-	// It must not call methods of the Server and should return quickly.
+	// OnWrite runs on the go-modbus goroutine that serves the client's
+	// connection, and without the Server's lock held: the requests of other
+	// connections, reads and writes, are served while it runs; the next
+	// request of the same connection waits for it. Writes on different
+	// connections call OnWrite at the same time, so an OnWrite that keeps
+	// state of its own protects it. ctx is the connection's context, which
+	// go-modbus cancels when the connection ends or the server shuts down.
+	// OnWrite may block and may call every method of the Server.
+	//
+	// The write takes effect when OnWrite returns nil and the model has not
+	// changed since the write was checked. When another client write, an
+	// update or SetRegisters changed the model in between, one made by
+	// OnWrite itself included, the write is refused with
+	// modbus.ErrServerDeviceFailure (exception 4) and nothing changes:
+	// OnWrite may have seen a write that never took effect.
+	//
+	// The ServerWrite belongs to OnWrite: changing it, its Points or its
+	// Model changes nothing that is stored.
+	//
+	// When the Server runs behind a go-modbus server (Serve, modbus.NewServer),
+	// a panic in OnWrite is recovered by go-modbus (since v1.15.3), which logs it
+	// with its stack and answers the client with exception 4; the write does
+	// not take effect and the Server stays usable. A caller of
+	// HandleHoldingRegisters gets the panic.
+	//
+	// Before v0.11.0 OnWrite ran with the Server locked, one call at a time,
+	// and must not call its methods.
 	OnWrite func(ctx context.Context, w *ServerWrite) error
 }
 
@@ -87,7 +113,8 @@ type ServerWrite struct {
 	// decoded as they will be once the write is accepted. RegisterOffset
 	// tells instances of a repeating group apart.
 	Points []DecodedPoint
-	// Model is the whole model as it will be once the write is accepted.
+	// Model is the whole model as it will be once the write is accepted. Its
+	// RawRegisters are a copy: changing them changes nothing that is stored.
 	Model *DecodedModel
 }
 
@@ -131,9 +158,12 @@ type ServerWrite struct {
 // All methods are safe for concurrent use with each other and with requests
 // being served. Each update (SetPoint, SetValues, Update, SetRegisters) and
 // each accepted client write replaces a model's registers atomically: a
-// single Modbus read never sees half of it. A client that needs several
-// requests for one model (more than 125 registers) can see different updates
-// in different requests, as with any Modbus device.
+// single Modbus read never sees half of it. No callback, neither
+// ServerOptions.OnWrite nor the function given to Update, runs with the
+// Server's lock held, so a callback can call the Server's methods and a slow
+// one holds up no request but those of its own connection. A client that
+// needs several requests for one model (more than 125 registers) can see
+// different updates in different requests, as with any Modbus device.
 //
 // The layout is fixed when the Server is created. An update cannot change the
 // length of a model.
@@ -163,6 +193,11 @@ type servedModel struct {
 	// occupies length registers from there, header included.
 	start, length int
 	slots         []pointSlot
+	// gen counts the changes of the model: every update and every accepted
+	// client write adds one. A callback runs without the lock on what the
+	// model held at generation gen; its result is committed only when gen
+	// has not moved since.
+	gen uint64
 }
 
 // NewServer lays out a device from the given models, in order.
@@ -337,7 +372,20 @@ func (s *Server) Model(index int) (*DecodedModel, error) {
 // the chain, or ErrEncode for a model served from raw registers (use
 // SetRegisters).
 //
-// fn runs while the Server is locked: it must not call methods of the Server.
+// fn runs on the goroutine that called Update, without the Server's lock
+// held: requests are served while it runs, updates made on other goroutines
+// run their functions at the same time, and fn may call the Server's methods
+// to read. When the model changes while fn runs (a client write, another
+// update), Update calls fn again with a copy of the new values, so fn may be
+// called more than once and must do nothing but change its v: an fn that
+// changes this model through the Server each time it is called makes Update
+// call it for ever. v belongs to that call of fn and is valid only until fn
+// returns: what fn leaves in it becomes the model's values, so keep v.Clone()
+// to use the values later. A panic in fn reaches the caller of Update, and
+// nothing changes.
+//
+// Before v0.11.0 fn ran with the Server locked, once, and must not call the
+// Server's methods.
 func (s *Server) Update(index int, fn func(v *Values) error) error {
 	m, err := s.model(index)
 	if err != nil {
@@ -346,29 +394,57 @@ func (s *Server) Update(index int, fn func(v *Values) error) error {
 	if m.schema == nil {
 		return &EncodeError{ModelID: m.id, Message: "the model is served from raw registers and has no values; use SetRegisters"}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	for {
+		s.mu.RLock()
+		values := m.values.Clone()
+		gen := m.gen
+		s.mu.RUnlock()
 
-	values := m.values.Clone()
-	if values == nil {
-		values = &Values{}
-	}
-	if fn != nil {
-		if err := fn(values); err != nil {
+		if values == nil {
+			values = &Values{}
+		}
+		if fn != nil {
+			if err := fn(values); err != nil {
+				return err
+			}
+		}
+		regs, slots, err := encodeModel(m.schema, values)
+		if err != nil {
 			return err
 		}
+		if len(regs) != m.length {
+			return fmt.Errorf("sunspec: server: model %d would change from %d to %d registers: %w",
+				m.id, m.length-2, len(regs)-2, ErrModelLayout)
+		}
+		if s.commitIf(m, gen, regs, values, slots) {
+			return nil
+		}
+		// The model changed while fn ran: run it again on the new values.
 	}
-	regs, slots, err := encodeModel(m.schema, values)
-	if err != nil {
-		return err
+}
+
+// commitIf replaces the model's registers, values and slots when its
+// generation is still gen, and reports whether it did. slots nil keeps the
+// model's slots.
+func (s *Server) commitIf(m *servedModel, gen uint64, regs []uint16, values *Values, slots []pointSlot) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m.gen != gen {
+		return false
 	}
-	if len(regs) != m.length {
-		return fmt.Errorf("sunspec: server: model %d would change from %d to %d registers: %w",
-			m.id, m.length-2, len(regs)-2, ErrModelLayout)
-	}
+	s.commit(m, regs, values, slots)
+	return true
+}
+
+// commit replaces the model's registers, values and slots (nil: kept) and
+// moves its generation on. The caller holds the lock.
+func (s *Server) commit(m *servedModel, regs []uint16, values *Values, slots []pointSlot) {
 	copy(s.registers(m), regs)
-	m.values, m.slots = values, slots
-	return nil
+	m.values = values
+	if slots != nil {
+		m.slots = slots
+	}
+	m.gen++
 }
 
 // SetValues replaces all values of the model at index of the chain: points
@@ -420,6 +496,7 @@ func (s *Server) SetRegisters(index int, data []uint16) error {
 	defer s.mu.Unlock()
 	if m.schema == nil {
 		copy(s.registers(m)[2:], data)
+		m.gen++
 		return nil
 	}
 
@@ -432,8 +509,7 @@ func (s *Server) SetRegisters(index int, data []uint16) error {
 	if decErr != nil || err != nil || !sameLayout(slots, m.slots) {
 		return fmt.Errorf("sunspec: server: model %d: the registers describe a different group structure: %w", m.id, ErrModelLayout)
 	}
-	copy(s.registers(m), regs)
-	m.values = values
+	s.commit(m, regs, values, nil)
 	return nil
 }
 
@@ -557,11 +633,63 @@ func (s *Server) write(ctx context.Context, req *modbus.HoldingRegistersRequest)
 		return modbus.ErrIllegalDataAddress
 	}
 	m := s.models[index]
+	addr := mustUint16(int(s.base) + m.start)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if s.onWrite == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		regs, err := s.candidate(m, lo, hi, req.Args)
+		if err != nil {
+			return err
+		}
+		// The model keeps its length and its counts, so it decodes as before.
+		dm, _ := DecodeModel(regs, m.schema, addr)
+		s.commit(m, regs, dm.Values(), nil)
+		return nil
+	}
 
-	// The write must cover whole writable points and nothing else.
+	// OnWrite runs without the lock, on a candidate built from a snapshot;
+	// the candidate is committed only if the model has not changed since.
+	s.mu.RLock()
+	regs, err := s.candidate(m, lo, hi, req.Args)
+	gen := m.gen
+	s.mu.RUnlock()
+	if err != nil {
+		return err
+	}
+	// OnWrite gets a model of its own: what it does with it changes neither
+	// regs nor values.
+	dm, _ := DecodeModel(slices.Clone(regs), m.schema, addr)
+	values := dm.Values()
+	w := &ServerWrite{
+		ClientAddr: req.ClientAddr,
+		ModelIndex: index,
+		ModelID:    m.id,
+		Address:    req.Addr,
+		Registers:  append([]uint16(nil), req.Args...),
+		Model:      dm,
+	}
+	dm.Group.Walk(func(g *DecodedGroup) {
+		for i := range g.Points {
+			if off := m.start + g.Points[i].RegisterOffset; off >= lo && off < hi {
+				w.Points = append(w.Points, g.Points[i])
+			}
+		}
+	})
+	if err := s.onWrite(ctx, w); err != nil {
+		return err
+	}
+	if !s.commitIf(m, gen, regs, values, nil) {
+		return modbus.ErrServerDeviceFailure
+	}
+	return nil
+}
+
+// candidate checks that a write of args to the image indexes [lo, hi) of m
+// covers whole writable points and nothing else, and returns the model's
+// registers, header included, with the write applied. The caller holds the
+// lock, for reading at least.
+func (s *Server) candidate(m *servedModel, lo, hi int, args []uint16) ([]uint16, error) {
 	covered := 0
 	for i := range m.slots {
 		sl := &m.slots[i]
@@ -570,45 +698,21 @@ func (s *Server) write(ctx context.Context, req *modbus.HoldingRegistersRequest)
 			continue
 		}
 		if !sl.writable || from < lo || to > hi {
-			return modbus.ErrIllegalDataAddress
+			return nil, modbus.ErrIllegalDataAddress
 		}
 		covered += sl.meta.Size
 	}
 	if covered != hi-lo {
-		return modbus.ErrIllegalDataAddress
+		return nil, modbus.ErrIllegalDataAddress
 	}
-
 	regs := append([]uint16(nil), s.registers(m)...)
-	copy(regs[lo-m.start:], req.Args)
-	// The model keeps its length and its counts, so it decodes as before.
-	dm, _ := DecodeModel(regs, m.schema, mustUint16(int(s.base)+m.start))
-	if s.onWrite != nil {
-		w := &ServerWrite{
-			ClientAddr: req.ClientAddr,
-			ModelIndex: index,
-			ModelID:    m.id,
-			Address:    req.Addr,
-			Registers:  append([]uint16(nil), req.Args...),
-			Model:      dm,
-		}
-		dm.Group.Walk(func(g *DecodedGroup) {
-			for i := range g.Points {
-				if off := m.start + g.Points[i].RegisterOffset; off >= lo && off < hi {
-					w.Points = append(w.Points, g.Points[i])
-				}
-			}
-		})
-		if err := s.onWrite(ctx, w); err != nil {
-			return err
-		}
-	}
-	copy(s.registers(m), regs)
-	m.values = dm.Values()
-	return nil
+	copy(regs[lo-m.start:], args)
+	return regs, nil
 }
 
 // serveShutdownTimeout bounds how long Serve waits for connections to end.
-const serveShutdownTimeout = 5 * time.Second
+// Tests shorten it.
+var serveShutdownTimeout = 5 * time.Second
 
 // Serve listens as conf says and serves the device until ctx is done, then
 // shuts the listener and its connections down and returns nil. It is a
@@ -626,7 +730,9 @@ const serveShutdownTimeout = 5 * time.Second
 //
 // Serve returns the go-modbus error when conf is invalid or the address
 // cannot be listened on, and the shutdown error when connections do not end
-// within five seconds.
+// within five seconds: one matching context.DeadlineExceeded, when a
+// request is still being served then (an OnWrite that does not return, say).
+// Serve does not wait for that request.
 func (s *Server) Serve(ctx context.Context, conf *modbus.ServerConfig) error {
 	ms, err := modbus.NewServer(conf, s)
 	if err != nil {

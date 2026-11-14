@@ -33,7 +33,6 @@ import (
 	"math/rand"
 	"os"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,21 +93,66 @@ func envDuration(t testing.TB, name string, def time.Duration) (time.Duration, b
 	return d, true
 }
 
-// leakCheck records the number of goroutines and returns a function that
-// fails the test when, after everything was closed, more are left.
+// goroutineStacks returns the stack of every goroutine, by its ID.
+func goroutineStacks() map[string]string {
+	out := make(map[string]string)
+	for g := range strings.SplitSeq(allStacks(), "\n\n") {
+		// "goroutine 12 [chan receive]:" and the frames below it.
+		if fields := strings.Fields(g); len(fields) >= 2 && fields[0] == "goroutine" {
+			out[fields[1]] = g
+		}
+	}
+	return out
+}
+
+// leakIgnored lists what marks a goroutine that the runtime or the testing
+// package starts by itself, whenever it needs it.
+var leakIgnored = []string{
+	"testing.(*T).Run", "testing.tRunner", "testing.(*M).", "testing.runTests", "testing.(*F).Fuzz",
+	"runtime.gc", "runtime.bgsweep", "runtime.bgscavenge", "runtime.forcegchelper",
+	"runtime.runfinq", "runtime.runFinalizers", "runtime.runCleanups", "runtime.ReadTrace",
+	"runtime.ensureSigM", "os/signal.", "runtime/pprof.", "created by runtime.",
+}
+
+// leakedGoroutines returns the stacks of the goroutines that are not in
+// before and that no entry of leakIgnored explains.
+func leakedGoroutines(before map[string]string) []string {
+	var leaked []string
+next:
+	for id, stack := range goroutineStacks() {
+		if _, ok := before[id]; ok {
+			continue
+		}
+		for _, mark := range leakIgnored {
+			if strings.Contains(stack, mark) {
+				continue next
+			}
+		}
+		leaked = append(leaked, stack)
+	}
+	return leaked
+}
+
+// leakCheck records which goroutines exist and returns a function that fails
+// the test when, after everything was closed, a goroutine that was not among
+// them is still there, and shows its stack. It compares the goroutines one by
+// one, by their ID: a goroutine that ended meanwhile does not make up for one
+// that was left behind. Goroutines take a moment to end after what they wait
+// for is closed, so the check looks again until none is left or ten seconds
+// have passed.
 func leakCheck(t testing.TB) func() {
 	t.Helper()
-	before := runtime.NumGoroutine()
+	before := goroutineStacks()
 	return func() {
 		t.Helper()
 		deadline := time.Now().Add(10 * time.Second)
 		for {
-			n := runtime.NumGoroutine()
-			if n <= before {
+			leaked := leakedGoroutines(before)
+			if len(leaked) == 0 {
 				return
 			}
 			if time.Now().After(deadline) {
-				t.Errorf("goroutine leak: %d before, %d after\n%s", before, n, allStacks())
+				t.Errorf("goroutine leak: %d goroutine(s) left that did not exist before:\n%s", len(leaked), strings.Join(leaked, "\n\n"))
 				return
 			}
 			time.Sleep(20 * time.Millisecond)

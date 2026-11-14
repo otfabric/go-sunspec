@@ -17,7 +17,10 @@ var (
 	// device: a model without an ID, a model with both registers and points,
 	// point values for a model without a schema, a value of a kind no point
 	// takes, or unit ID 0. Values that do not fit their point are reported
-	// by the encoder instead, with sunspec.ErrEncode.
+	// by the encoder instead, with sunspec.ErrEncode. A nested group the
+	// model's schema does not have, and more than 65535 group instances in
+	// one model, match both: ServerModels reports them (since v0.11.0) as a
+	// *ModelError whose cause is a *sunspec.EncodeError.
 	ErrInvalid = errors.New("devicefile: invalid device file")
 
 	// ErrTooLarge indicates a file that Load refuses to read because it is

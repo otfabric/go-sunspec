@@ -1,0 +1,44 @@
+# Extended tier (otfabric/engineering standards/testing.md#ci-tiers).
+name: Nightly
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: "off"
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    # `make fuzz` discovers the targets: five today, at 5 minutes each, plus
+    # the builds.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make fuzz FUZZTIME=5m
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-corpus-nightly
+          path: "**/testdata/fuzz/"
+
+  test-386:
+    name: test (linux/386)
+    runs-on: ubuntu-latest
+    # An int is 32 bits on 386: a conversion or a sum that only wraps there
+    # fails here. 386 binaries run natively on the amd64 runner.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Unit, end-to-end, chaos and stress tests (GOARCH=386)
+        run: GOARCH=386 go test ./...

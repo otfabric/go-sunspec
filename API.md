@@ -68,7 +68,9 @@ with that error. The restriction belongs to the client:
   underlying `*modbus.Client` (see go-modbus concurrency docs).
 - `Server` methods are safe for concurrent use with each other and with the
   requests being served. Every update and every accepted client write replaces
-  a model's registers atomically.
+  a model's registers atomically. No callback runs with the `Server`'s lock
+  held (since v0.11.0): see [the OnWrite contract](#the-onwrite-contract) and
+  [Updates](#updates).
 - `registry.ByID`, `Known`, `All`, and `Count` are safe for concurrent reads
   after package initialization.
 - Do not call `registry.Register` after init.
@@ -150,6 +152,7 @@ model again.
 | Refused before anything is sent | Error |
 |---|---|
 | Schema access not `RW`, the count point of a group, a model without a schema or with more registers on the device than the schema describes, a `Device` on input registers | `ErrPointNotWritable` |
+| A value other than `[]uint16` or nil for a point whose scale factor point the device does not report as a usable value: not implemented, or outside -10..10 (since v0.11.0) | `ErrPointNotWritable`, with the reason |
 | A name that is not a point of the top-level group | `ErrPointNotFound` |
 | A value the encoder refuses | `*EncodeError` (`ErrEncode`, `ErrValueOutOfRange`) |
 | A client built with `AllowedFunctionCodes: ReadFunctionCodes()` | `modbus.ErrFunctionCodeNotAllowed` |
@@ -158,6 +161,26 @@ A device that refuses the write returns its Modbus exception
 (`modbus.ErrIllegalDataAddress`, say). The read before and the write are two
 requests: a device that changes the scale factor in between gets the value
 scaled with the old one. Points of repeating groups cannot be written.
+
+A point whose schema names a scale factor point takes an engineering value
+only while the device reports that scale factor as a usable value: without
+one, the value cannot be converted to the device's registers, and
+`WritePoint` refuses it before anything is sent. `Device.ReadModel` shows the
+same condition as a point without `ScaledValue`. A `[]uint16` value is the
+point's registers and is written as it is, whatever the scale factor reads,
+and so is a nil value, which sets the point to its not-implemented value:
+
+```go
+_, err := dev.WritePoint(ctx, inst, "WMaxLimPct", 75.0)
+if errors.Is(err, sunspec.ErrPointNotWritable) {
+    // "... WMaxLimPct of model 123 is scaled by WMaxLimPct_SF, which the device reports as not implemented; ..."
+    _, err = dev.WritePoint(ctx, inst, "WMaxLimPct", []uint16{750}) // the registers, as the caller knows them
+}
+```
+
+Before v0.11.0 such a value was stored unscaled (75 here) and `WritePoint`
+returned nil. A literal scale factor of the schema is always usable. See
+[SPECIFICATIONS.md](SPECIFICATIONS.md#scale-factors).
 
 ### Reading several models
 
@@ -442,8 +465,23 @@ type ServerWrite struct {
 
 Returning an error refuses the write; the client receives it as a Modbus
 exception (`modbus.ErrIllegalDataValue`, say; an error that is not a Modbus
-exception becomes a server device failure). `OnWrite` and the function given
-to `Update` run with the `Server` locked: they must not call its methods.
+exception becomes a server device failure).
+
+#### The OnWrite contract
+
+Since v0.11.0 `OnWrite` runs without the `Server`'s lock held. Before, it ran
+with the `Server` locked and must not call its methods.
+
+| Question | Answer |
+|---|---|
+| Which goroutine | The go-modbus goroutine that serves the client's connection. Requests of other connections, reads and writes, are served while `OnWrite` runs; the next request of the same connection waits. Writes on different connections call `OnWrite` at the same time: an `OnWrite` that keeps state of its own protects it (before v0.11.0 the `Server`'s lock made the calls take turns) |
+| May it block | Yes. `ctx` is the connection's context: go-modbus cancels it when the connection ends or the server shuts down |
+| Which `Server` methods may it call | All of them. `UnitID`, `BaseAddress`, `RegType` and `Models` never wait; `Model` returns the model as it is before the write. An update of the model being written (`SetPoint`, `SetValues`, `Update`, `SetRegisters`) makes the write fail, see the next row |
+| When does the write take effect | When `OnWrite` returns nil and the model has not changed since the write was checked. When another client write or an update changed that model in between, the write is refused with `modbus.ErrServerDeviceFailure` (exception 4) and nothing changes: `OnWrite` may then have seen a write that did not take effect. Changes of other models do not matter |
+| May it change the `ServerWrite` | Yes, to no effect: `Registers`, `Points` and `Model` (its `RawRegisters` included) are copies that belong to `OnWrite`. What is stored is what the client wrote |
+| What a panic does | Behind a go-modbus server (`Serve`, `modbus.NewServer`), go-modbus v1.16.0 recovers it, logs it with its stack at error level and answers exception 4; the write does not take effect and the `Server` keeps serving. A direct caller of `HandleHoldingRegisters` gets the panic |
+
+A `Server` without `OnWrite` applies a write in one step, as before.
 
 ### Updates
 
@@ -457,13 +495,39 @@ updates in each, as with any Modbus device. Nothing changes when an update
 returns an error. An update cannot change the length of a model
 (`ErrModelLayout`).
 
+The function given to `Update` runs on the goroutine that called `Update`,
+without the `Server`'s lock held (since v0.11.0; before, it ran once, with the
+`Server` locked, and must not call its methods):
+
+- Requests are served while it runs, updates made on other goroutines run
+  their functions at the same time, and it may call the `Server`'s methods to
+  read (`Models`, `Model`).
+- When the model changes while it runs (a client write, another update),
+  `Update` calls it again with a copy of the new values, and stores only the
+  result of the last call. So it may be called more than once and must do
+  nothing but change its `v`: no counting, no I/O that must happen once. A
+  function that itself changes the same model through the `Server` each time
+  it is called makes `Update` call it for ever, and a slow function on a model
+  that others change all the time is called again each time.
+- `v` belongs to that call and is valid only until the function returns: what
+  it leaves in `v` becomes the model's values. Keep `v.Clone()` to use the
+  values later; changing `v` itself after the return is a data race with the
+  `Server`.
+- A panic in the function reaches the caller of `Update`, and nothing changes.
+
+`SetPoint` and `SetValues` are `Update` with a function of their own and
+behave the same; `SetRegisters` calls no function.
+
 ### Listening
 
 The `Server` does not listen. Pass it to `modbus.NewServer`, which owns the
 listener, connections, idle timeout, client limit, TLS, logging and metrics.
 go-modbus serves `tcp://` and `tcp+tls://`. `Server.Serve(ctx, conf)` is a
 convenience that starts such a server, waits for `ctx` and shuts it down
-(allowing connections five seconds to end).
+(allowing connections five seconds to end). When a request is still being
+served after those five seconds (an `OnWrite` that does not return, say),
+`Serve` returns an error matching `context.DeadlineExceeded` and does not wait
+for it: the listener and the connections are closed by then.
 
 ## Device files
 
@@ -625,7 +689,12 @@ return srv.Serve(ctx, &modbus.ServerConfig{URL: "tcp://127.0.0.1:1502"})
 The device answers the file's unit ID at the file's base address, 1 and 40000
 when the file does not say; `ServerOptions.UnitID` and `BaseAddress` replace
 them. Unit ID 0 is refused. `File.ServerModels` gives the models alone, for
-your own `sunspec.NewServer` call. Errors name the model by position and ID,
+your own `sunspec.NewServer` call. It converts the groups of a model along the
+model's schema (since v0.11.0): a nested group the schema does not have at
+that place is an error, found before its instances are converted, and so are
+more than 65535 group instances in one model, which no model holds. The
+values themselves are checked when the device is built. How much memory a
+file takes: [LIMITATIONS.md](LIMITATIONS.md#memory). Errors name the model by position and ID,
 the group instance and the point (`*ModelError`, or the `*sunspec.EncodeError`
 of the encoder): see [ERRORS.md](ERRORS.md#device-files).
 

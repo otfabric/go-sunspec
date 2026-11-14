@@ -60,7 +60,8 @@ Run `make` (or `make help`) for the full list of targets.
 
 - The JSON files in [`models/`](models/) are copied as-is from [sunspec/models](https://github.com/sunspec/models). **Do not edit them by hand**; a wrong definition must be fixed upstream
 - [`registry/models_gen.go`](registry/models_gen.go) is generated from them by `make generate`. **Do not edit it by hand**; change the generator in [`internal/gen`](internal/gen/) instead. A test and `make generate-check`, which CI runs, fail if the committed file differs from what the generator produces
-- `./check-models.sh` (or `make models-check`) reports what is new, changed or removed upstream without modifying anything (add `--diff` to see which points changed); `make sync` downloads the models and regenerates the registry
+- `./check-models.sh` (or `make models-check`) reports what is new, changed or removed upstream without modifying anything (add `--diff` to see which points changed); `make sync` downloads the models, all from one upstream commit, records that commit, the date and the SHA-256 of every file ([models/README.md](models/README.md), `models/SHA256SUMS`) and regenerates the registry
+- `make models-verify`, which CI runs, fails when a file in `models/` differs from `models/SHA256SUMS`, is missing or is not listed there
 - When you update models, review the diff of `registry/models_gen.go`: changed point names, types, offsets or scale factors can break callers, and belong in the release notes
 
 ### Errors
@@ -97,6 +98,8 @@ Examples:
 | Layer | Files | What it is for |
 |---|---|---|
 | Unit | `decode*_test.go`, `encode_test.go`, `server_test.go`, `device_test.go`, `write_test.go`, … | One function or type at a time, tables of inputs and expected registers, values and errors |
+| Boundaries and budgets | `schema_bounds_test.go`, `alloc_budget_test.go`, `devicefile/limits_test.go` | Lengths, offsets, sizes and counts at their limits, up to `math.MaxInt` and across the 32-bit boundary (the nightly workflow runs the tests as 386 binaries); and how much memory a decode or a device file may take for its size (`runtime.MemStats` around one call), so that a change that allocates for what an input announces instead of for what it holds fails |
+| Lifecycle contract | `server_callback_test.go` | The rows of the matrix in [TESTING.md](TESTING.md#lifecycle-contract-matrix) that apply: a callback that calls the `Server`, a callback that blocks, `Serve` cut short. Every wait is on a channel; a timeout only bounds a wait that would otherwise hang |
 | Round trip | `encode_roundtrip_test.go`, `gen_test.go` | `EncodeModel` → `DecodeModel` for every registry model. `gen_test.go` holds the value generator the layers below share: it fills any schema with valid random values and knows what they decode to |
 | End-to-end | `e2e_test.go`, `integration_test.go` | A served device read through the public client path over real TCP. `e2e_test.go` starts with a feature → test matrix: add a line when you add a feature, and a test when a line has none |
 | Chaos | `chaos_test.go`, `chaos_proxy_test.go`, `write_chaos_test.go` | Faults on the wire (a proxy that drops, delays, truncates, splits, duplicates and corrupts frames) and in the device (exceptions, changing chains, lying headers, garbage). They assert invariants, not timings: no panic, no hang, no goroutine leak, and no wrong value returned as valid. For `WritePoint`: no register but the point's changes, the device only holds values some call asked for, and a write succeeds once the faults stop |
@@ -105,6 +108,8 @@ Examples:
 | Fuzz | `decode_fuzz_test.go`, `hostile_fuzz_test.go`, `devicefile/parse_fuzz_test.go` | `DecodeModel` on arbitrary registers against every registry model, `Discover` and `ReadAll` on arbitrary registers, `Server` on arbitrary requests, `WritePoint` on arbitrary point names and values (`write_fuzz_test.go`), `devicefile.Parse` on arbitrary text. They assert invariants (`make fuzz`; CI runs each target for 10 s): no panic, documented errors only, points inside the registers, what decodes without warnings or parses reads back the same. A new decoder of untrusted input gets a target. An input that fails is committed under `testdata/fuzz/` with the fix |
 
 `harness_test.go` has the helpers the last three share (a handler shim that swaps or distorts the device behind a running server, loopback servers, the `served` oracle).
+
+`leakCheck` (`chaos_test.go`) compares the goroutines one by one, by ID and stack, with those that existed before the test: a goroutine that ended meanwhile does not make up for one that was left behind, and a failure shows the stack of what was left. Do not synchronise with `time.Sleep`: wait for the event. The chaos proxy has `settle` for that (`chaos_proxy_test.go`): it closes every connection and returns when the server has closed its end of each, which a Modbus server does after serving what it received, so that no frame of an earlier connection is still on its way. The sleeps that remain model a slow peer, pace a load loop or are the step of a bounded polling wait.
 
 Chaos and stress tests are seeded. A failing run logs its seed; replay it with `SUNSPEC_CHAOS_SEED=<seed> go test -race -run <Test> .`. By default they run for a second or two each so that `make test` stays fast. `make soak` (`SOAKTIME=10m make soak`) runs them for longer through `SUNSPEC_CHAOS_DURATION` and `SUNSPEC_STRESS_DURATION`, and makes the scripted chaos scenarios sweep every frame instead of a sample. Before you call a change to these tests stable, run them repeatedly: `go test -race -count=20 -run 'Chaos|Stress' .`.
 
@@ -158,7 +163,7 @@ For larger changes, please open an issue first to discuss the approach.
 ```
 .                      Package sunspec: detect, discover, read, decode; encode and serve
 registry/              Model metadata and lookups; models_gen.go is generated
-models/                SunSpec JSON models from sunspec/models (do not edit)
+models/                SunSpec JSON models from sunspec/models, their licence and checksums (do not edit)
 internal/schema/       JSON model parsing
 internal/gen/          Code generator: models/ → registry/models_gen.go
 testutil/              SunSpec fixture server for tests

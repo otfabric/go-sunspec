@@ -293,7 +293,9 @@ func (e *encoder) group(gm *registry.GroupMeta, vals *Values, path string, paren
 			}
 		}
 	}
-	if gm.Length < 0 || len(e.regs)+gm.Length > maxModelRegisters {
+	// Written so that no sum can wrap: len(e.regs) never passes
+	// maxModelRegisters.
+	if gm.Length < 0 || gm.Length > maxModelRegisters-len(e.regs) {
 		return e.errorf(path, nil, nil, "model exceeds %d registers", maxModelRegisters)
 	}
 
@@ -303,7 +305,7 @@ func (e *encoder) group(gm *registry.GroupMeta, vals *Values, path string, paren
 
 	for i := range gm.Points {
 		pm := &gm.Points[i]
-		if pm.Offset < 0 || pm.Size < 0 || pm.Offset+pm.Size > gm.Length {
+		if pm.Offset < 0 || pm.Size < 0 || pm.Size > gm.Length-pm.Offset {
 			return e.errorf(path, pm, nil, "offset %d+size %d exceeds the group length %d in schema", pm.Offset, pm.Size, gm.Length)
 		}
 		val, set := vals.point(pm.Name)

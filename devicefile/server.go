@@ -17,14 +17,27 @@ import (
 // errNoID is the problem of a model without "id".
 var errNoID = errors.New(`"id" is missing`)
 
+// maxGroupInstances is the most group instances, at every depth together,
+// that ServerModels converts for one model: a model has at most 65535 data
+// registers, and every instance that is encoded holds at least one of them.
+const maxGroupInstances = 0xFFFF
+
 // ServerModels converts the file's models to what sunspec.NewServer takes.
 // A model with registers is served from them; any other one needs a schema
 // in the registry and is given by its values.
 //
+// The groups are converted along the model's schema: a nested group the
+// schema does not have at that place is an error, found before its instances
+// are converted, and so is a model with more than 65535 group instances, at
+// every depth together, which no model can hold (it has at most 65535 data
+// registers, and every instance encoded holds at least one). Since v0.11.0;
+// before, both were found by the encoder, after every instance had been
+// converted.
+//
 // Errors are *ModelError: they say which model, by position and ID, and
-// which point they concern. Only the form of the values is checked here; the
-// values themselves are checked against the schemas when the device is
-// built (NewServer, or File.Server).
+// which group instance and point they concern. Only the form of the values
+// and the group names are checked here; the values themselves are checked
+// against the schemas when the device is built (NewServer, or File.Server).
 func (f *File) ServerModels() ([]sunspec.ServerModel, error) {
 	models := make([]sunspec.ServerModel, 0, len(f.Models))
 	for i := range f.Models {
@@ -43,7 +56,9 @@ func (f *File) ServerModels() ([]sunspec.ServerModel, error) {
 		case !registry.Known(id):
 			return nil, &ModelError{Index: i, ModelID: &id, Err: errors.New(`no schema is known for this model: give its data as "registers"`)}
 		default:
-			values, err := m.values("")
+			meta := registry.ByID(id)
+			c := &converter{left: maxGroupInstances, modelID: id, top: meta.Group.Name}
+			values, err := c.values(&m.Group, meta.Group, nil)
 			if err != nil {
 				return nil, &ModelError{Index: i, ModelID: &id, Err: err}
 			}
@@ -62,30 +77,90 @@ func (g *Group) Values() (*sunspec.Values, error) {
 	if g == nil {
 		return &sunspec.Values{}, nil
 	}
-	return g.values("")
+	return (&converter{left: -1}).values(g, nil, nil)
 }
 
-// values converts a group instance of the file. path names the instance in
-// errors.
-func (g *Group) values(path string) (*sunspec.Values, error) {
+// converter converts the group instances of one model.
+type converter struct {
+	// left is the number of group instances that may still be converted;
+	// negative for no limit.
+	left int
+	// modelID and top, the name of the model's top-level group, name the
+	// model in the errors of a conversion along its schema.
+	modelID uint16
+	top     string
+}
+
+// encodeError reports a problem of the group structure the way the encoder
+// does, so that it matches sunspec.ErrEncode, as it did when the encoder
+// found it, as well as ErrInvalid.
+func (c *converter) encodeError(at *instance, format string, args ...any) error {
+	return &sunspec.EncodeError{ModelID: c.modelID, Group: at.path(c.top), Message: fmt.Sprintf(format, args...)}
+}
+
+// instance names a group instance in errors: the instance index (counting
+// from 1) of group in the instance parent. The text is built only for an
+// error.
+type instance struct {
+	parent *instance
+	group  string
+	index  int
+}
+
+// String returns the instance's path as the prefix of an error message:
+// "group Crv[1]: group Pt[2]: ", or "" for the model's top-level group.
+func (in *instance) String() string {
+	if in == nil {
+		return ""
+	}
+	return fmt.Sprintf("%sgroup %s[%d]: ", in.parent.String(), in.group, in.index)
+}
+
+// path returns the instance's path as sunspec.EncodeError gives it:
+// "DERCurve/Crv[2]/Pt[1]", where top names the model's top-level group.
+func (in *instance) path(top string) string {
+	if in == nil {
+		return top
+	}
+	return fmt.Sprintf("%s/%s[%d]", in.parent.path(top), in.group, in.index)
+}
+
+// values converts the group instance g, which at is. meta is the schema of
+// its group; nil converts without a schema, with no check of the group
+// names.
+func (c *converter) values(g *Group, meta *registry.GroupMeta, at *instance) (*sunspec.Values, error) {
 	v := &sunspec.Values{}
 	for _, e := range g.Points {
 		value, err := pointValue(e.Value)
 		if err != nil {
-			return nil, fmt.Errorf("%spoint %s: %w", path, e.Name, err)
+			return nil, fmt.Errorf("%spoint %s: %w", at, e.Name, err)
 		}
 		v.Set(e.Name, value)
 	}
 	for name, instances := range g.Groups {
+		var child *registry.GroupMeta
+		if meta != nil {
+			if child = meta.Group(name); child == nil {
+				return nil, c.encodeError(at, "the group has no nested group %q", name)
+			}
+		}
 		for i, inst := range instances {
+			in := &instance{parent: at, group: name, index: i + 1}
+			if c.left == 0 {
+				return nil, c.encodeError(in, "more than %d group instances, which no model holds: a model has at most %d data registers",
+					maxGroupInstances, maxGroupInstances)
+			}
+			if c.left > 0 {
+				c.left--
+			}
 			if inst == nil {
 				inst = &Group{}
 			}
-			child, err := inst.values(fmt.Sprintf("%sgroup %s[%d]: ", path, name, i+1))
+			cv, err := c.values(inst, child, in)
 			if err != nil {
 				return nil, err
 			}
-			v.Add(name, child)
+			v.Add(name, cv)
 		}
 	}
 	return v, nil

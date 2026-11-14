@@ -1,4 +1,4 @@
-.PHONY: help all generate generate-check sync models-check build check test fuzz bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean cross e2e interop coverage-pkg-check docs-check
+.PHONY: help all generate generate-check sync models-check models-verify build check test fuzz bench soak coverage coverage-html coverage-clean coverage-check cover fmt fmt-check vet lint lint-ci vuln clean cross e2e interop coverage-pkg-check docs-check
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -40,6 +40,19 @@ sync: ## Sync SunSpec JSON models from upstream and regenerate
 
 models-check: ## Report SunSpec models that are new, changed or removed upstream (read-only)
 	@./check-models.sh
+
+# The vendored model definitions against the checksums sync-models.sh recorded
+# (TEST-011): a file that was changed, is missing or is not listed fails.
+models-verify: ## Check models/ against models/SHA256SUMS
+	@cd models && \
+	if command -v sha256sum >/dev/null 2>&1; then sum="sha256sum"; else sum="shasum -a 256"; fi; \
+	$$sum -c --quiet SHA256SUMS || { echo "models/ differs from models/SHA256SUMS: models/ is not edited by hand; 'make sync' updates it."; exit 1; }; \
+	bad=0; for f in *; do \
+		case "$$f" in README.md|SHA256SUMS) continue ;; esac; \
+		awk -v f="$$f" '$$2 == f { found = 1 } END { exit !found }' SHA256SUMS || { echo "models/$$f is not listed in models/SHA256SUMS"; bad=1; }; \
+	done; \
+	[ "$$bad" -eq 0 ] || exit 1; \
+	echo "models: $$(wc -l < SHA256SUMS | tr -d ' ') files match SHA256SUMS"
 
 CROSS_PLATFORMS := linux/amd64 linux/arm64 linux/arm darwin/arm64 windows/amd64
 
