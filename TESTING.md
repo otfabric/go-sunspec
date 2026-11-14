@@ -36,3 +36,15 @@ The end-to-end tier reads the library's own `Server`, behind a real go-modbus TC
 ## Fuzz regressions
 
 `make fuzz` discovers the targets: `FuzzDecodeModel`, `FuzzDiscover` (discovery and reads of arbitrary registers behind the marker, over loopback TCP), `FuzzServerRequest` (arbitrary holding register requests to a `Server`), `FuzzWritePoint` (`WritePoint` of arbitrary names and values over loopback TCP: documented errors only, a refused write changes nothing, an accepted one only the point's registers) and `FuzzParse` in package `devicefile`. A failing input is written to `testdata/fuzz/<target>/` of the package. Commit it with the fix: `go test` replays it from then on.
+
+## When CI runs
+
+| Event | Workflow | What runs |
+|---|---|---|
+| Pull request | `pr.yml` | `docs.yml` (docsync, otfabric-policy) always; `ci.yml`, `interop.yml` unless every changed file is documentation; then `OT Fabric Required Checks` |
+| Push to a branch | none | nothing; dispatch `ci.yml`, `interop.yml` to test a branch without a pull request |
+| Push to `main` | `docs.yml` | the light checks; the merged commit was tested as the pull request's merge commit |
+| Schedule | `interop.yml`, `models-check.yml` | the scheduled runs, on `main` |
+| Release | `release.yml` | the release workflow tests the release commit again |
+
+Documentation means an added or modified `*.md` file outside `.github/`, `testdata/` and `vendor/`, other than `AGENTS.md` and `CLAUDE.md`, and other than `API.md`, which code reads. A deleted or renamed document, or any other file, runs everything. `OT Fabric Required Checks` fails unless every job that applies succeeded; its summary lists them.

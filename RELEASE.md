@@ -1,5 +1,19 @@
 # go-sunspec Releases
 
+## v0.10.3
+
+**Date:** 2026-11-14
+**Previous release:** v0.10.2
+
+No API change.
+
+### Changed
+
+- Built on go-modbus v1.15.1 (was v1.15.0). The go-modbus library code is the same in both releases.
+- CI: otfabric/engineering policy 1.6 and the shared workflows v3.8.0. Releases now run the API compatibility gate before tagging.
+
+---
+
 ## v0.10.2
 
 **Date:** 2026-11-13
