@@ -119,6 +119,12 @@ var (
 	SunSpecEndModelLength = gmsunspec.EndModelLength
 
 	// SunSpecDefaultBaseAddresses are the default base addresses probed during detection.
+	//
+	// It is go-modbus's sunspec.DefaultBaseAddresses itself, not a copy, and
+	// go-modbus probes that slice whenever DiscoverOptions.BaseAddresses is
+	// nil: changing an element changes the default of every Detect and
+	// Discover in the process, this package's and go-modbus's. Build a list
+	// of your own from a copy (slices.Clone).
 	SunSpecDefaultBaseAddresses = gmsunspec.DefaultBaseAddresses
 )
 ```
@@ -129,7 +135,7 @@ SunSpec protocol constants re-exported from github.com/otfabric/go-modbus/sunspe
 var ErrPointNotWritable = errors.New("sunspec: point not writable")
 ```
 
-ErrPointNotWritable indicates a write the client refuses before sending anything: a point whose schema access is not "RW", the count point of a group (it defines the layout), a point of a model without a schema or whose device holds more registers than the schema describes, or a device served in input registers, which Modbus cannot write.
+ErrPointNotWritable indicates a write the client refuses before sending anything: a point whose schema access is not "RW", the count point of a group (it defines the layout), a point of a model without a schema or whose device holds more registers than the schema describes, a device served in input registers, which Modbus cannot write, and (since v0.11.0) an engineering value for a point whose scale factor the device does not report as a usable value.
 
 ## Functions
 
@@ -153,9 +159,9 @@ EncodeModel returns a \*EncodeError, matching ErrEncode, that names the group in
 func ReadFunctionCodes() []modbus.FunctionCode
 ```
 
-ReadFunctionCodes returns the Modbus function codes the client side of this package sends: Read Holding Registers (0x03) and Read Input Registers (0x04). Detect, Discover, Open and every Device method read registers and do nothing else.
+ReadFunctionCodes returns the Modbus function codes the client side of this package reads with: Read Holding Registers (0x03) and Read Input Registers (0x04). Detect, Discover, Open and every Device method except WritePoint read registers and do nothing else. WritePoint (since v0.10.0) also sends one Write Multiple Registers request (0x10), which is not in the list.
 
-Give the list to modbus.Config.AllowedFunctionCodes (go-modbus v1.5.0 or later) for a client that cannot write: the client then refuses any other function code with modbus.ErrFunctionCodeNotAllowed before a byte is sent, whoever asks for it.
+Give the list to modbus.Config.AllowedFunctionCodes (go-modbus v1.5.0 or later) for a client that cannot write: the client then refuses any other function code with modbus.ErrFunctionCodeNotAllowed before a byte is sent, whoever asks for it, WritePoint included.
 
 	client, err := modbus.New(modbus.Config{
 		URL:                  "tcp://192.168.1.100:502",
@@ -559,6 +565,8 @@ It is the only method of this package that sends a write. It reads the model fir
 
 A point that is not "RW" in the schema, a count point, a model without a schema and a Device on input registers fail with ErrPointNotWritable, and a name that is not a point of the top-level group with ErrPointNotFound, before anything is sent. A value the encoder refuses fails with its \*EncodeError. A device that refuses the write returns its Modbus exception (modbus.ErrIllegalDataAddress, say).
 
+A point whose schema names a scale factor point is written only when the device reports that scale factor, in the read before the write, as a usable value: implemented and within -10..10. Otherwise the engineering value cannot be converted to the device's registers, and WritePoint fails with ErrPointNotWritable, saying why, before anything is sent. A \[]uint16 value is not scaled and is written as the point's registers whatever the scale factor, and so is a nil value, which sets the point to its not-implemented value; before v0.11.0 every value was then written unscaled.
+
 A client built with AllowedFunctionCodes: ReadFunctionCodes() cannot write: WritePoint then fails with modbus.ErrFunctionCodeNotAllowed.
 
 ### type DiscoverOptions
@@ -781,7 +789,7 @@ A client may write (function codes 6 and 16) the points whose schema access is "
 
 #### Updates and concurrency {#hdr-Updates_and_concurrency}
 
-All methods are safe for concurrent use with each other and with requests being served. Each update (SetPoint, SetValues, Update, SetRegisters) and each accepted client write replaces a model's registers atomically: a single Modbus read never sees half of it. A client that needs several requests for one model (more than 125 registers) can see different updates in different requests, as with any Modbus device.
+All methods are safe for concurrent use with each other and with requests being served. Each update (SetPoint, SetValues, Update, SetRegisters) and each accepted client write replaces a model's registers atomically: a single Modbus read never sees half of it. No callback, neither ServerOptions.OnWrite nor the function given to Update, runs with the Server's lock held, so a callback can call the Server's methods and a slow one holds up no request but those of its own connection. A client that needs several requests for one model (more than 125 registers) can see different updates in different requests, as with any Modbus device.
 
 The layout is fixed when the Server is created. An update cannot change the length of a model.
 
@@ -878,7 +886,7 @@ Serve listens as conf says and serves the device until ctx is done, then shuts t
 
 and the one place where this package opens a listener; use those calls directly to control the lifecycle yourself. conf.URL selects the transport (go-modbus serves "tcp://host:port" and "tcp+tls://host:port"); conf also carries the idle timeout, client limit, TLS material, logger and metrics.
 
-Serve returns the go-modbus error when conf is invalid or the address cannot be listened on, and the shutdown error when connections do not end within five seconds.
+Serve returns the go-modbus error when conf is invalid or the address cannot be listened on, and the shutdown error when connections do not end within five seconds: one matching context.DeadlineExceeded, when a request is still being served then (an OnWrite that does not return, say). Serve does not wait for that request.
 
 #### func (Server) SetPoint
 
@@ -924,7 +932,9 @@ Update changes the values of the model at index of the chain in one atomic step.
 
 Nothing changes when Update returns an error: the error fn returned, the error of EncodeModel for values that cannot be encoded, an error matching ErrModelLayout when the new values would change the model's length (a different number of group instances), ErrUnknownModel for an index outside the chain, or ErrEncode for a model served from raw registers (use SetRegisters).
 
-fn runs while the Server is locked: it must not call methods of the Server.
+fn runs on the goroutine that called Update, without the Server's lock held: requests are served while it runs, updates made on other goroutines run their functions at the same time, and fn may call the Server's methods to read. When the model changes while fn runs (a client write, another update), Update calls fn again with a copy of the new values, so fn may be called more than once and must do nothing but change its v: an fn that changes this model through the Server each time it is called makes Update call it for ever. v belongs to that call of fn and is valid only until fn returns: what fn leaves in it becomes the model's values, so keep v.Clone() to use the values later. A panic in fn reaches the caller of Update, and nothing changes.
+
+Before v0.11.0 fn ran with the Server locked, once, and must not call the Server's methods.
 
 ### type ServerModel
 
@@ -980,8 +990,33 @@ type ServerOptions struct {
 	// modbus.ErrIllegalDataValue to refuse a value; an error that is not a
 	// Modbus exception is reported as a server device failure).
 	//
-	// OnWrite runs while the Server is locked, so that the write is atomic.
-	// It must not call methods of the Server and should return quickly.
+	// OnWrite runs on the go-modbus goroutine that serves the client's
+	// connection, and without the Server's lock held: the requests of other
+	// connections, reads and writes, are served while it runs; the next
+	// request of the same connection waits for it. Writes on different
+	// connections call OnWrite at the same time, so an OnWrite that keeps
+	// state of its own protects it. ctx is the connection's context, which
+	// go-modbus cancels when the connection ends or the server shuts down.
+	// OnWrite may block and may call every method of the Server.
+	//
+	// The write takes effect when OnWrite returns nil and the model has not
+	// changed since the write was checked. When another client write, an
+	// update or SetRegisters changed the model in between, one made by
+	// OnWrite itself included, the write is refused with
+	// modbus.ErrServerDeviceFailure (exception 4) and nothing changes:
+	// OnWrite may have seen a write that never took effect.
+	//
+	// The ServerWrite belongs to OnWrite: changing it, its Points or its
+	// Model changes nothing that is stored.
+	//
+	// When the Server runs behind a go-modbus server (Serve, modbus.NewServer),
+	// a panic in OnWrite is recovered by go-modbus (since v1.15.3), which logs it
+	// with its stack and answers the client with exception 4; the write does
+	// not take effect and the Server stays usable. A caller of
+	// HandleHoldingRegisters gets the panic.
+	//
+	// Before v0.11.0 OnWrite ran with the Server locked, one call at a time,
+	// and must not call its methods.
 	OnWrite func(ctx context.Context, w *ServerWrite) error
 }
 ```
@@ -1007,7 +1042,8 @@ type ServerWrite struct {
 	// decoded as they will be once the write is accepted. RegisterOffset
 	// tells instances of a repeating group apart.
 	Points []DecodedPoint
-	// Model is the whole model as it will be once the write is accepted.
+	// Model is the whole model as it will be once the write is accepted. Its
+	// RawRegisters are a copy: changing them changes nothing that is stored.
 	Model *DecodedModel
 }
 ```

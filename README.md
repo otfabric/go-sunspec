@@ -276,7 +276,7 @@ fmt.Printf("Limit now %g %%\n", *point.ScaledValue)
 _, err = device.WritePoint(ctx, *controls, "WMaxLim_Ena", "ENABLED")
 ```
 
-`WritePoint` (since v0.10.0) writes one point of a model's top-level group. It reads the model first, so the value is scaled with the device's current scale factor and a changed model chain is caught (`ErrModelChanged`), then sends that point's registers, and only those, with Write Multiple Registers (FC 16), and returns the point as the device reports it afterwards. Points the model defines as read-only, count points, models without a schema and devices on input registers fail with `ErrPointNotWritable` before anything is sent; a value that does not fit fails with an `*EncodeError`; a device that refuses the write returns its Modbus exception. DER controls change how equipment connected to the grid behaves: see [SECURITY.md](SECURITY.md). Details: [API.md](API.md#writing-a-point).
+`WritePoint` (since v0.10.0) writes one point of a model's top-level group. It reads the model first, so the value is scaled with the device's current scale factor and a changed model chain is caught (`ErrModelChanged`), then sends that point's registers, and only those, with Write Multiple Registers (FC 16), and returns the point as the device reports it afterwards. Points the model defines as read-only, count points, models without a schema and devices on input registers fail with `ErrPointNotWritable` before anything is sent, and so does (since v0.11.0) an engineering value for a point whose scale factor the device reports as not implemented or outside -10..10 (give the point's registers as `[]uint16` to write them as they are); a value that does not fit fails with an `*EncodeError`; a device that refuses the write returns its Modbus exception. DER controls change how equipment connected to the grid behaves: see [SECURITY.md](SECURITY.md). Details: [API.md](API.md#writing-a-point).
 
 ### Decoded values
 
@@ -348,7 +348,7 @@ client, err := modbus.New(modbus.Config{
 })
 ```
 
-The client refuses any other function code with `modbus.ErrFunctionCodeNotAllowed` before a byte reaches the wire (go-modbus v1.5.0). Everything in this package works through such a client unchanged.
+The client refuses any other function code with `modbus.ErrFunctionCodeNotAllowed` before a byte reaches the wire (go-modbus v1.5.0). Everything in this package except `WritePoint` works through such a client unchanged.
 
 ### Registry
 
@@ -420,8 +420,8 @@ err = srv.SetPoint(1, "W", 4350) // model at index 1 of the chain
 
 - **Values** — A point takes its engineering value; the encoder divides by 10^scale factor and rounds to the nearest integer, halves away from zero. The scale factor is the value you give for the `sunssf` point. A point you do not set is served as "not implemented". A value that does not fit its type after scaling is an error (`ErrValueOutOfRange`), never wrapped or clamped.
 - **Groups** — `Values.Add("module", ...)` adds an instance of a repeating group; count points such as `NPt` are filled in from the number of instances. Nested groups nest.
-- **Updates** — `SetPoint`, `SetValues`, `Update` (several points, nested ones, in one atomic step) and `SetRegisters` are safe while the device is served. A read of a model in a single Modbus request never sees half an update. The layout is fixed: an update cannot change a model's length.
-- **Client writes** — Clients can write (FC 6 and 16) points whose SunSpec access is `RW`. Read-only points, headers, the marker, count points, parts of a point and unmapped addresses are refused with exception 2. `ServerOptions.OnWrite` sees every write, decoded, before it takes effect and can refuse it.
+- **Updates** — `SetPoint`, `SetValues`, `Update` (several points, nested ones, in one atomic step) and `SetRegisters` are safe while the device is served. A read of a model in a single Modbus request never sees half an update. The layout is fixed: an update cannot change a model's length. The function given to `Update` runs without the `Server`'s lock held and is called again when the model changed while it ran (since v0.11.0), so it must do nothing but change the values it is given ([API.md](API.md#updates)).
+- **Client writes** — Clients can write (FC 6 and 16) points whose SunSpec access is `RW`. Read-only points, headers, the marker, count points, parts of a point and unmapped addresses are refused with exception 2. `ServerOptions.OnWrite` sees every write, decoded, before it takes effect and can refuse it. It runs without the `Server`'s lock held (since v0.11.0), so it may block and call the `Server`'s methods; a write whose model changed meanwhile is refused with exception 4 ([API.md](API.md#the-onwrite-contract)).
 - **Without I/O** — `EncodeModel(schema, values)` returns the registers of one model, and `DecodedModel.Values()` turns a decoded model back into values: `EncodeModel` and `DecodeModel` are each other's inverse.
 
 Full contract: [API.md](API.md#serving). There is no authentication in Modbus: see [SECURITY.md](SECURITY.md) before you listen on a network.
@@ -541,6 +541,8 @@ go-sunspec/
 ├── check-models.sh    Report models that are new, changed or removed upstream
 ├── API.md             Public API contract
 ├── ERRORS.md          Error taxonomy
+├── SPECIFICATIONS.md  Which SunSpec rule each behaviour follows, and the test that pins it
+├── THIRD_PARTY_NOTICES.md  The SunSpec model definitions and their licence
 ├── doc.go             Package documentation
 ├── types.go           Public types (Device, ModelInstance, DiscoverOptions)
 ├── errors.go          Error types
@@ -564,8 +566,10 @@ go-sunspec/
 The JSON under [`models/`](models/) comes from the official SunSpec Alliance
 repository [**sunspec/models**](https://github.com/sunspec/models)
 ([`json/` on `master`](https://github.com/sunspec/models/tree/master/json)).
-[`sync-models.sh`](sync-models.sh) downloads that tree into `models/`;
+[`sync-models.sh`](sync-models.sh) downloads that tree into `models/`, from one
+commit, and records the commit, the date and the SHA-256 of every file;
 `make generate` compiles it into [`registry/models_gen.go`](registry/models_gen.go).
+`make models-verify` checks `models/` against those checksums.
 See [models/README.md](models/README.md) for details.
 
 ```bash
@@ -602,7 +606,7 @@ not been verified, is in [LIMITATIONS.md](LIMITATIONS.md).
 ## Requirements
 
 - Go 1.26+
-- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.15.3+
+- [otfabric/go-modbus](https://github.com/otfabric/go-modbus) v1.16.0+
 
 The tests of package `devicefile` validate files against its JSON Schema with [santhosh-tekuri/jsonschema](https://github.com/santhosh-tekuri/jsonschema) v6. It is a test dependency only: programs that import go-sunspec do not build it.
 
@@ -620,4 +624,6 @@ This project is licensed under the MIT License. See [LICENSE](./LICENSE).
 
 The SunSpec JSON model definitions in [`models/`](models/) are from
 [sunspec/models](https://github.com/sunspec/models) and are licensed under the
-[Apache License 2.0](https://github.com/sunspec/models/blob/master/LICENSE).
+Apache License 2.0: [models/LICENSE](models/LICENSE). The registry compiled
+from them is part of every program built with go-sunspec; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

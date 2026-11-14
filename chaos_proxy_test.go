@@ -4,9 +4,11 @@ package sunspec
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"math/rand"
 	"net"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -119,6 +121,8 @@ type chaosProxy struct {
 	ln     net.Listener
 	pairs  map[*chaosPair]struct{}
 	closed bool
+	// finish is set by letServerFinish.
+	finish bool
 	wg     sync.WaitGroup
 
 	injected [chaosFaultCount]atomic.Int64
@@ -130,17 +134,34 @@ type chaosPair struct {
 	client, server net.Conn
 	once           sync.Once
 	done           chan struct{}
+	// finish is the proxy's when the connection was accepted: the server
+	// side ends as that of a client that leaves (letServerFinish).
+	finish bool
+	// served is closed when the proxy is done with the server side: with
+	// finish, when the server has closed its end.
+	served chan struct{}
 }
 
+// close ends the connection: both sides at once, or, with finish, the
+// client side at once and the server side by sending nothing more, so that
+// the server closes it when it has served what it received (pump waits for
+// that). reset resets what it closes instead.
 func (c *chaosPair) close(reset bool) {
 	c.once.Do(func() {
 		close(c.done)
-		for _, conn := range []net.Conn{c.client, c.server} {
-			if tc, ok := conn.(*net.TCPConn); ok && reset {
-				_ = tc.SetLinger(0)
-			}
-			_ = conn.Close()
+		if tc, ok := c.client.(*net.TCPConn); ok && reset {
+			_ = tc.SetLinger(0)
 		}
+		_ = c.client.Close()
+		tc, ok := c.server.(*net.TCPConn)
+		if ok && c.finish {
+			_ = tc.CloseWrite()
+			return
+		}
+		if ok && reset {
+			_ = tc.SetLinger(0)
+		}
+		_ = c.server.Close()
 	})
 }
 
@@ -175,6 +196,68 @@ func (p *chaosProxy) setDecide(d chaosDecide) {
 func (p *chaosProxy) heal() {
 	p.setDecide(nil)
 	p.killAll()
+}
+
+// letServerFinish makes the proxy end the server side of every connection
+// accepted from now on the way a client that leaves does: it sends nothing
+// more and waits for the server to close its end. A Modbus server does that
+// when it has served the requests it received on the connection. The client
+// side still meets every fault as it is described. Call it before the first
+// connection; settle needs it.
+func (p *chaosProxy) letServerFinish() {
+	p.mu.Lock()
+	p.finish = true
+	p.mu.Unlock()
+}
+
+// settle stops the faults, closes every connection and returns when the
+// server has closed its end of each of them. After it nothing of an earlier
+// connection is on its way any more: a frame the proxy held back (a delayed
+// one) was dropped with its connection, and a frame the proxy had forwarded
+// has been served. It waits on these events, not for a time; chaosGrace
+// only bounds a wait that would otherwise hang.
+func (p *chaosProxy) settle() {
+	p.tb.Helper()
+	p.setDecide(nil)
+	p.mu.Lock()
+	finish := p.finish
+	p.mu.Unlock()
+	if !finish {
+		p.tb.Fatal("chaos proxy: settle without letServerFinish")
+	}
+	// Connections are accepted in the order they were made. When the proxy
+	// has accepted this one and closed it, because it was closed from here,
+	// every earlier connection has its pair.
+	last, err := net.DialTimeout("tcp", p.addr, chaosGrace)
+	if err != nil {
+		p.tb.Fatalf("chaos proxy: settle: %v", err)
+	}
+	defer func() { _ = last.Close() }()
+	_ = last.SetDeadline(time.Now().Add(chaosGrace))
+	if tc, ok := last.(*net.TCPConn); ok {
+		_ = tc.CloseWrite()
+	}
+	if _, err := io.Copy(io.Discard, last); errors.Is(err, os.ErrDeadlineExceeded) {
+		p.tb.Fatalf("chaos proxy: settle: the proxy did not close the last connection\n%s", allStacks())
+	}
+
+	p.mu.Lock()
+	pairs := make([]*chaosPair, 0, len(p.pairs))
+	for c := range p.pairs {
+		pairs = append(pairs, c)
+	}
+	p.mu.Unlock()
+	timeout := time.After(chaosGrace)
+	for _, c := range pairs {
+		c.close(false)
+	}
+	for _, c := range pairs {
+		select {
+		case <-c.served:
+		case <-timeout:
+			p.tb.Fatalf("chaos proxy: settle: the server did not close its end of a connection\n%s", allStacks())
+		}
+	}
 }
 
 func (p *chaosProxy) killAll() {
@@ -229,13 +312,14 @@ func (p *chaosProxy) accept() {
 			_ = client.Close()
 			continue
 		}
-		pair := &chaosPair{client: client, server: server, done: make(chan struct{})}
+		pair := &chaosPair{client: client, server: server, done: make(chan struct{}), served: make(chan struct{})}
 		p.mu.Lock()
 		if p.closed {
 			p.mu.Unlock()
 			pair.close(false)
 			return
 		}
+		pair.finish = p.finish
 		p.pairs[pair] = struct{}{}
 		p.mu.Unlock()
 
@@ -260,11 +344,23 @@ func (p *chaosProxy) pick(dir chaosDir, data []byte) (chaosFault, int64) {
 	return fault, p.rng.Int63()
 }
 
-// pump forwards the frames of one direction of a connection.
+// pump forwards the frames of one direction of a connection. The pump of the
+// responses is the last to leave: it takes the pair off the proxy's list.
 func (p *chaosProxy) pump(pair *chaosPair, dir chaosDir, src, dst net.Conn) {
 	defer p.wg.Done()
 	defer func() {
 		pair.close(false)
+		if dir != chaosS2C {
+			return
+		}
+		if pair.finish {
+			// The server closes its end when it has served what it
+			// received; what it still answers goes nowhere.
+			_ = src.SetReadDeadline(time.Now().Add(chaosGrace))
+			_, _ = io.Copy(io.Discard, src)
+			_ = src.Close()
+		}
+		close(pair.served)
 		p.mu.Lock()
 		delete(p.pairs, pair)
 		p.mu.Unlock()
@@ -385,6 +481,10 @@ func (p *chaosProxy) apply(pair *chaosPair, dst net.Conn, frame []byte, fault ch
 
 // allStacks returns the stacks of all goroutines.
 func allStacks() string {
-	buf := make([]byte, 1<<20)
-	return string(buf[:runtime.Stack(buf, true)])
+	for size := 1 << 20; ; size *= 2 {
+		buf := make([]byte, size)
+		if n := runtime.Stack(buf, true); n < size {
+			return string(buf[:n])
+		}
+	}
 }

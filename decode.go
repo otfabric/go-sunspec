@@ -100,7 +100,8 @@ func (s *scope) lookup(name string) *DecodedPoint {
 // anything, when the registers do not hold the group's own points. path names
 // the instance in warnings.
 func (d *decoder) group(gm *registry.GroupMeta, index int, path string, parent *scope) *DecodedGroup {
-	if gm.Length < 0 || d.pos+gm.Length > len(d.regs) {
+	// Written so that no sum can wrap: d.pos never passes len(d.regs).
+	if gm.Length < 0 || gm.Length > len(d.regs)-d.pos {
 		return nil
 	}
 	g := &DecodedGroup{Name: gm.Name, Index: index}
@@ -111,7 +112,7 @@ func (d *decoder) group(gm *registry.GroupMeta, index int, path string, parent *
 			d.warnf("%s: point %s: invalid offset %d or size %d in schema", path, pm.Name, pm.Offset, pm.Size)
 			continue
 		}
-		if pm.Offset+pm.Size > len(own) {
+		if pm.Size > len(own)-pm.Offset {
 			d.warnf("%s: point %s: offset %d+size %d exceeds the group length %d",
 				path, pm.Name, pm.Offset, pm.Size, len(own))
 			continue
@@ -182,7 +183,10 @@ func (d *decoder) instances(child *registry.GroupMeta, parent *DecodedGroup, pat
 }
 
 // countValue returns the value of a count point. ok is false for a nil,
-// unimplemented or non-integer point.
+// unimplemented or non-integer point. A 32-bit count above the number of
+// registers a model can hold is that number, as in the encoder, so that it
+// decodes the same where an int has 32 bits: as many instances as the
+// registers hold.
 func countValue(p *DecodedPoint) (n int, ok bool) {
 	if p == nil || !p.Implemented {
 		return 0, false
@@ -196,7 +200,7 @@ func countValue(p *DecodedPoint) (n int, ok bool) {
 		}
 		return int(v), true
 	case uint32:
-		return int(v), true
+		return int(min(v, maxModelRegisters)), true
 	default:
 		return 0, false
 	}

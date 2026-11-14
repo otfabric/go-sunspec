@@ -52,7 +52,7 @@ const (
 const MaxFileSize = 16 << 20
 ```
 
-MaxFileSize is the longest file Load reads, 16 MiB. A device file for the whole 16-bit register space, every register given, is well under 1 MiB.
+MaxFileSize is the longest file Load reads, 16 MiB. A device file for the whole 16-bit register space, every register given, is well under 1 MiB. Parse takes up to about 30 times the size of a file in memory.
 
 ```go
 const SchemaID = "https://otfabric.io/schemas/sunspec/devicefile-1.schema.json"
@@ -73,7 +73,10 @@ var (
 	// device: a model without an ID, a model with both registers and points,
 	// point values for a model without a schema, a value of a kind no point
 	// takes, or unit ID 0. Values that do not fit their point are reported
-	// by the encoder instead, with sunspec.ErrEncode.
+	// by the encoder instead, with sunspec.ErrEncode. A nested group the
+	// model's schema does not have, and more than 65535 group instances in
+	// one model, match both: ServerModels reports them (since v0.11.0) as a
+	// *ModelError whose cause is a *sunspec.EncodeError.
 	ErrInvalid = errors.New("devicefile: invalid device file")
 
 	// ErrTooLarge indicates a file that Load refuses to read because it is
@@ -183,7 +186,9 @@ func (f *File) ServerModels() ([]sunspec.ServerModel, error)
 
 ServerModels converts the file's models to what sunspec.NewServer takes. A model with registers is served from them; any other one needs a schema in the registry and is given by its values.
 
-Errors are \*ModelError: they say which model, by position and ID, and which point they concern. Only the form of the values is checked here; the values themselves are checked against the schemas when the device is built (NewServer, or File.Server).
+The groups are converted along the model's schema: a nested group the schema does not have at that place is an error, found before its instances are converted, and so is a model with more than 65535 group instances, at every depth together, which no model can hold (it has at most 65535 data registers, and every instance encoded holds at least one). Since v0.11.0; before, both were found by the encoder, after every instance had been converted.
+
+Errors are \*ModelError: they say which model, by position and ID, and which group instance and point they concern. Only the form of the values and the group names are checked here; the values themselves are checked against the schemas when the device is built (NewServer, or File.Server).
 
 #### func (File) Write
 

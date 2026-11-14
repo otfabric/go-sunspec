@@ -41,20 +41,24 @@ SunSpec devices are read and served over Modbus, which carries no authentication
 
 ### Reading Devices
 
-As a client this package reads and decodes, and writes only when the caller calls `Device.WritePoint`: one `RW` point per call, with FC 16. Everything else sends Modbus function codes 03 and 04 only. To make reading only a property of the connection, create the client with `modbus.Config.AllowedFunctionCodes: sunspec.ReadFunctionCodes()`: it then refuses every other function code, `WritePoint`'s included, before anything is sent. DER controls change the behaviour of physical equipment connected to the grid: write them only where you mean to.
+As a client this package reads and decodes, and writes only when the caller calls `Device.WritePoint`: one `RW` point per call, with FC 16. `WritePoint` sends an engineering value only when the device reports the point's scale factor as a usable value (implemented, within -10..10); otherwise it refuses the value before anything is sent, since it cannot be converted to what the device stores. Everything else sends Modbus function codes 03 and 04 only. To make reading only a property of the connection, create the client with `modbus.Config.AllowedFunctionCodes: sunspec.ReadFunctionCodes()`: it then refuses every other function code, `WritePoint`'s included, before anything is sent. DER controls change the behaviour of physical equipment connected to the grid: write them only where you mean to.
 
 ### Serving Devices
 
 A `Server` answers every client that reaches it: Modbus has no authentication, so whoever can connect can read all of its registers and write its writable points.
 
 - **Choose the listen address deliberately.** `tcp://127.0.0.1:1502` is reachable from the same host only; `tcp://0.0.0.0:...` from every network the host is on. Never expose a served device to the Internet
-- **Writes come from untrusted clients.** The `Server` accepts any register value for a writable point; it checks which registers may be written, not what is written. When a written value drives anything real, validate it in `ServerOptions.OnWrite` (range, plausibility, which client) and refuse what you do not accept. `ServerWrite.ClientAddr` is what the transport reports, not an authenticated identity
+- **Writes come from untrusted clients.** The `Server` accepts any register value for a writable point; it checks which registers may be written, not what is written. When a written value drives anything real, validate it in `ServerOptions.OnWrite` (range, plausibility, which client) and refuse what you do not accept. What `OnWrite` changes in the `ServerWrite` it is given is not stored: the device holds what the client wrote, or nothing of the write. `ServerWrite.ClientAddr` is what the transport reports, not an authenticated identity
 - **Use TLS with client certificates** (`tcp+tls://`, configured on `modbus.ServerConfig`) when clients connect across a network you do not control, and limit `MaxClients` and the idle `Timeout` there
 - A simulator that mimics a real device mimics its identity too: do not put one on a production network where a controller could mistake it for the equipment
 
 ### Model Definitions
 
-The model definitions compiled into the registry come from the official [sunspec/models](https://github.com/sunspec/models) repository and are reviewed as a diff when they are updated. They determine how registers are interpreted, so only take them from that source.
+The model definitions compiled into the registry come from the official [sunspec/models](https://github.com/sunspec/models) repository and are reviewed as a diff when they are updated. They determine how registers are interpreted, so only take them from that source. The upstream commit and the SHA-256 of every file are recorded ([models/README.md](models/README.md)), and CI checks `models/` against them (`make models-verify`).
+
+### Device Files
+
+A device file is input like any other: `devicefile.Load` reads at most 16 MiB, and the memory `Parse` and `File.Server` take is bounded by a multiple of the file's size ([LIMITATIONS.md](LIMITATIONS.md#memory)). Load files from sources you trust on hosts with little memory.
 
 ### Dependencies
 

@@ -31,6 +31,9 @@ func minRegisters(pointType string) int {
 // warning, or empty. A point of an unsupported type, or one with fewer
 // registers than its type needs, is returned with a copy of its raw registers
 // as value.
+//
+// The "not implemented" value of each type, and where it is taken from, is
+// listed in SPECIFICATIONS.md, "Not-implemented values".
 func decodePoint(regs []uint16, pm *registry.PointMeta) (DecodedPoint, string) {
 	dp := DecodedPoint{
 		Name:           pm.Name,

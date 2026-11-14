@@ -8,10 +8,12 @@ import (
 	"strconv"
 )
 
-// The range of a scale factor exponent: the SunSpec information model
-// specification gives sunssf the range -10 to 10. A device that reports a
-// value outside it has no usable scale factor; applying one such as 10^400
-// would turn every measurement into an infinity, zero or NaN.
+// The range of a scale factor exponent, -10 to 10: the range the schema of
+// the SunSpec model definitions (models/schema.json) gives the sf of a point.
+// SPECIFICATIONS.md, "Scale factors", says what each scale factor rule is
+// taken from. A device that reports a value outside the range has no usable
+// scale factor; applying one such as 10^400 would turn every measurement
+// into an infinity, zero or NaN.
 const (
 	minScaleFactor = -10
 	maxScaleFactor = 10

@@ -50,6 +50,9 @@ func TestChaosWritePoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	proxy := startChaosProxy(t, addr, seed, chaosDelay)
+	// The server serves what it received on a connection before the proxy is
+	// done with it, so that settle can wait for it.
+	proxy.letServerFinish()
 
 	direct := dial(t, addr, time.Second)
 	truthDev, err := Discover(testCtx(t), direct, &DiscoverOptions{BaseAddresses: []uint16{40000}})
@@ -139,9 +142,10 @@ func TestChaosWritePoint(t *testing.T) {
 		_ = client.Close()
 	}
 
-	// Late frames of the faults land before the healed write is checked.
-	proxy.heal()
-	time.Sleep(2 * chaosDelay)
+	// Nothing of the fault rounds is on its way when the healed write is
+	// made: the frames the proxy held back are dropped, the ones it had
+	// forwarded are served.
+	proxy.settle()
 	client := connect()
 	if client == nil {
 		t.Fatal("cannot connect after the faults stopped")

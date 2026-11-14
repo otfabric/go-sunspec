@@ -28,10 +28,12 @@ or re-exports the ones that matter at the SunSpec layer.
 | `Server` model index out of range; `ServerModel` without registers and without schema | `ErrUnknownModel` |
 | Client write the `Server` refuses | Modbus exception 2 to the client; no Go error |
 | `WritePoint` of a point that is not writable | `ErrPointNotWritable`; nothing is sent |
+| `WritePoint` of an engineering value while the device reports the point's scale factor as not implemented or outside -10..10 | `ErrPointNotWritable`, with the reason; nothing is sent (since v0.11.0). A `[]uint16` value is written as the point's registers, and a nil value as the not-implemented value |
 | `WritePoint` the device refuses | The Modbus exception (go-modbus error), wrapped |
 | Function code a read-only client does not allow | Error wrapping `modbus.ErrFunctionCodeNotAllowed` (go-modbus); nothing is sent. The reads of this package are never refused by `ReadFunctionCodes()` |
 | Device file is not valid JSON, has an unknown member, a wrong type, a point twice | `*devicefile.SyntaxError` matching `devicefile.ErrSyntax` |
 | Device file model without ID, with registers and points, without schema; unsupported kind of value; unit ID 0 | `*devicefile.ModelError` (or a plain error for the unit ID) matching `devicefile.ErrInvalid` |
+| Device file model with a nested group its schema does not have, or with more than 65535 group instances | `*devicefile.ModelError` around a `*EncodeError`: matches `devicefile.ErrInvalid` and `ErrEncode` (since v0.11.0) |
 | Device file value that does not fit its point, or models that do not fit | `*EncodeError` / `ErrModelLayout`, as from `NewServer` |
 
 Prefer `errors.Is` / `errors.As`:
@@ -60,7 +62,7 @@ if errors.As(err, &dec) {
 | `ErrNotSunSpec` | Detect/Discover found no SunSpec marker at probed bases |
 | `ErrUnknownModel` | `ReadModelByID`: ID absent from `Device.Discovery.Models` |
 | `ErrPointNotFound` | `ReadPoint`: name not present in the decoded model; `WritePoint`: name not a point of the top-level group |
-| `ErrPointNotWritable` | `WritePoint`: schema access not `RW`, a count point, a model without a schema or with more registers on the device than the schema describes, or a `Device` on input registers; nothing is sent |
+| `ErrPointNotWritable` | `WritePoint`: schema access not `RW`, a count point, a model without a schema or with more registers on the device than the schema describes, a `Device` on input registers, or (since v0.11.0) an engineering value for a point whose scale factor the device does not report as a usable value; nothing is sent |
 | `ErrDecode` | Decode failure (usually via `*DecodeError`) |
 | `ErrPartialRead` | Chunked read returned early; some registers may be present |
 | `batch.ErrNotAttempted` (go-modbus) | `ReadModels`: the instance was not read because an earlier request timed out, the connection failed or the context ended; the error also wraps that cause |
@@ -135,6 +137,8 @@ A `Server` reports problems to Modbus clients as exceptions, not as Go errors:
 | Request for unit ID 0 (broadcast) | No answer; the request is not carried out (since v0.5.1) |
 | Coils, discrete inputs, FC 22, FC 23 | 1, illegal function |
 | Write refused by `ServerOptions.OnWrite` | The error it returned; server device failure (4) when that is not a Modbus exception |
+| Write whose model changed while `ServerOptions.OnWrite` ran (another client write, an update) | 4, server device failure; nothing changes (since v0.11.0). The client may send the write again |
+| `ServerOptions.OnWrite` does not return normally, behind a go-modbus server | 4, server device failure (go-modbus v1.16.0 recovers it and logs it); nothing changes |
 
 ## Device files
 
@@ -172,9 +176,22 @@ use a number, a string, a list or null`.
 
 `File.Server` also returns what `NewServer` returns: `*EncodeError` (matching
 `ErrEncode`, and `ErrValueOutOfRange` or `ErrPointNotFound`) for a value or a
-name the model's schema refuses, `ErrModelLayout` for a model with an empty
-`registers` list or a chain that does not fit the address space. They do not
-match `devicefile.ErrInvalid`.
+point name the model's schema refuses, `ErrModelLayout` for a model with an
+empty `registers` list or a chain that does not fit the address space. They do
+not match `devicefile.ErrInvalid`.
+
+Two problems of the group structure are found by `File.ServerModels` itself
+(since v0.11.0), which converts a model's groups along its schema: a nested
+group the schema does not have at that place, and more than 65535 group
+instances in one model, counted at every depth together (a model has at most
+65535 data registers and every instance holds at least one). They are a
+`*ModelError` whose cause is a `*sunspec.EncodeError` naming the group
+instance, so `errors.Is` matches `devicefile.ErrInvalid` and
+`sunspec.ErrEncode`, and `errors.As` finds both types:
+`models[0] (model 705): sunspec: encode model 705 group DERVoltVar/Crv[1]/Pt[1]: the group has no nested group "Pt"`.
+Before v0.11.0 the encoder found both, after `ServerModels` had converted
+every instance: `ServerModels` returned no error for them, and `File.Server`
+returned the `*EncodeError` without a `*ModelError` around it.
 
 Apart from `ErrTooLarge` and `ErrNotRegular`, `Load` returns the operating
 system's error for a file it cannot read, as `WriteFile` does for one it

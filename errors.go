@@ -209,5 +209,11 @@ var (
 	SunSpecEndModelLength = gmsunspec.EndModelLength
 
 	// SunSpecDefaultBaseAddresses are the default base addresses probed during detection.
+	//
+	// It is go-modbus's sunspec.DefaultBaseAddresses itself, not a copy, and
+	// go-modbus probes that slice whenever DiscoverOptions.BaseAddresses is
+	// nil: changing an element changes the default of every Detect and
+	// Discover in the process, this package's and go-modbus's. Build a list
+	// of your own from a copy (slices.Clone).
 	SunSpecDefaultBaseAddresses = gmsunspec.DefaultBaseAddresses
 )

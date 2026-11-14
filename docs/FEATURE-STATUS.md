@@ -1,6 +1,6 @@
 # Support and feature matrix
 
-What go-sunspec supports and how it is tested. Status: v0.10.2. API contract: [API.md](../API.md). Out of scope and unverified: [LIMITATIONS.md](../LIMITATIONS.md).
+What go-sunspec supports and how it is tested. Status: v0.11.0. API contract: [API.md](../API.md). Out of scope and unverified: [LIMITATIONS.md](../LIMITATIONS.md).
 
 None of this is a conformance claim: nothing is certified.
 
@@ -8,11 +8,11 @@ None of this is a conformance claim: nothing is certified.
 
 | go-sunspec | Go | go-modbus | Models | Supported |
 |---|---|---|---|---|
-| **v0.10.2** | 1.26 or later (CI: 1.26 and 1.27) | v1.15.0 | 112, snapshot of sunspec/models | **yes** |
+| **v0.11.0** | 1.26 or later (CI: 1.26 and 1.27) | v1.16.0 | 112, snapshot of sunspec/models ([commit and checksums](../models/README.md)) | **yes** |
 
 ## 2. Platforms
 
-CI runs on Linux only (`ubuntu-latest`). Linux arm64 and arm, macOS arm64 and Windows amd64 are built by `make cross`, not tested.
+CI runs on Linux only (`ubuntu-latest`): amd64 on every pull request, and the tests as 386 binaries, where an `int` has 32 bits, in the nightly workflow. Linux arm64 and arm, macOS arm64 and Windows amd64 are built by `make cross`, not tested.
 
 ## 3. Feature support
 
@@ -24,7 +24,7 @@ CI runs on Linux only (`ubuntu-latest`). Linux arm64 and arm, macOS arm64 and Wi
 | Model chain discovery | ✅ | ✅ | ✅ |
 | Decoding and scaling points, repeating and nested groups | ✅ | n/a | ✅ chaos |
 | Encoding models | n/a | ✅ `EncodeModel` | ✅ round trip |
-| Models without a schema, vendor models | ◐ raw registers | — | ✅ |
+| Models without a schema, vendor models | ◐ raw registers | ◐ `ServerModel.Registers`: served as raw registers, updated with `SetRegisters`, not writable by clients | ✅ |
 | Reads over Modbus: function codes 03, 04 | ✅ | ✅ | ✅ |
 | Writes: function codes 06, 16 | ◐ `WritePoint`: one top-level `RW` point, FC 16 only | ✅ whole `RW` points | ✅ chaos, fuzz, interop |
 | Function codes 22, 23; coils and discrete inputs | — | — | n/a |

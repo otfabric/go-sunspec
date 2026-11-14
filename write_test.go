@@ -5,6 +5,7 @@ package sunspec
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -229,5 +230,120 @@ func TestWritePointReadBackFails(t *testing.T) {
 	}
 	if got := servedPoint(t, srv, 0, "Rw"); got != uint16(5) {
 		t.Errorf("the write did not land: %v", got)
+	}
+}
+
+// TestWritePointScaleFactor: an engineering value is written only when the
+// device reports the point's scale factor, in the read before the write, as a
+// usable value: implemented and within -10..10. Otherwise WritePoint refuses
+// before anything is sent, and the point's registers can still be written as
+// []uint16.
+func TestWritePointScaleFactor(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		sf     any     // Lim_SF on the device; nil: not implemented
+		value  float64 // the engineering value written to Lim
+		raw    int16   // what Lim holds after the write
+		reason string  // of the refusal; "" for a value that is written
+	}{
+		{"-10, the lowest", -10, 1e-7, 1000, ""},
+		{"-1", -1, 7.5, 75, ""},
+		{"0", 0, 7, 7, ""},
+		{"10, the highest", 10, 3e10, 3, ""},
+		{"not implemented", nil, 7.5, 0, "reports as not implemented"},
+		{"11", []uint16{11}, 7.5, 0, "reports as 11, outside -10..10"},
+		{"-11", []uint16{0xFFF5}, 7.5, 0, "reports as -11, outside -10..10"},
+		{"32767", []uint16{0x7FFF}, 7.5, 0, "reports as 32767, outside -10..10"},
+		{"-32767", []uint16{0x8001}, 7.5, 0, "reports as -32767, outside -10..10"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vals := ctlValues().Set("Lim", []uint16{5}).Set("Lim_SF", tc.sf)
+			srv, err := NewServer(&ServerOptions{BaseAddress: 40000}, ServerModel{Schema: ctlSchema(), Values: vals})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The shim counts the write requests that reach the device.
+			sh := newShim(srv)
+			addr, _ := startModbus(t, sh)
+			dev, err := Discover(testCtx(t), dial(t, addr, 2*time.Second), at(40000))
+			if err != nil {
+				t.Fatal(err)
+			}
+			inst := dev.Discovery.Models[0]
+			inst.Schema, inst.SchemaKnown = ctlSchema(), true
+
+			p, err := dev.WritePoint(testCtx(t), inst, "Lim", tc.value)
+			if tc.reason == "" {
+				if err != nil || p.RawValue != tc.raw || sh.writes.Load() != 1 {
+					t.Fatalf("WritePoint(Lim, %v): point %+v, error %v, %d writes sent; want raw %d from one write",
+						tc.value, p, err, sh.writes.Load(), tc.raw)
+				}
+				if got := servedPoint(t, srv, 0, "Lim"); got != tc.raw {
+					t.Fatalf("the device holds %v, want %d", got, tc.raw)
+				}
+				return
+			}
+			if !errors.Is(err, ErrPointNotWritable) || !strings.Contains(err.Error(), tc.reason) {
+				t.Fatalf("WritePoint(Lim, %v): point %+v, error %v; want ErrPointNotWritable saying %q", tc.value, p, err, tc.reason)
+			}
+			if n := sh.writes.Load(); n != 0 {
+				t.Fatalf("%d writes were sent for a value that was refused", n)
+			}
+			if got := servedPoint(t, srv, 0, "Lim"); got != int16(5) {
+				t.Fatalf("the device holds %v after a refused write, want 5", got)
+			}
+			// The point's registers are written as they are, whatever the
+			// scale factor.
+			p, err = dev.WritePoint(testCtx(t), inst, "Lim", []uint16{75})
+			if err != nil || p.RawValue != int16(75) || p.ScaledValue != nil || sh.writes.Load() != 1 {
+				t.Fatalf("WritePoint(Lim, []uint16{75}): point %+v, error %v, %d writes sent; want raw 75, unscaled, from one write",
+					p, err, sh.writes.Load())
+			}
+			// So is a nil value, which sets the point to its not-implemented
+			// value and needs no scale factor.
+			p, err = dev.WritePoint(testCtx(t), inst, "Lim", nil)
+			if err != nil || p.Implemented || sh.writes.Load() != 2 {
+				t.Fatalf("WritePoint(Lim, nil): point %+v, error %v, %d writes sent; want a point that is not implemented, from a second write",
+					p, err, sh.writes.Load())
+			}
+		})
+	}
+}
+
+// TestWritePointScaleFactorOfTheSchema: a literal scale factor is the
+// schema's and always usable; a scale factor point that the schema names but
+// the model does not hold is not.
+func TestWritePointScaleFactorOfTheSchema(t *testing.T) {
+	schema := pointSchema(64030,
+		registry.PointMeta{Name: "Lit", Type: "int16", Size: 1, SF: "-2", Access: "RW"},
+		registry.PointMeta{Name: "Odd", Type: "int16", Size: 1, SF: "Gone_SF", Access: "RW"},
+	)
+	srv, err := NewServer(&ServerOptions{BaseAddress: 40000},
+		ServerModel{Schema: schema, Values: (&Values{}).Set("Lit", 0.25).Set("Odd", 3)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh := newShim(srv)
+	addr, _ := startModbus(t, sh)
+	dev, err := Discover(testCtx(t), dial(t, addr, 2*time.Second), at(40000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := dev.Discovery.Models[0]
+	inst.Schema, inst.SchemaKnown = schema, true
+
+	if p, err := dev.WritePoint(testCtx(t), inst, "Lit", 1.5); err != nil || p.RawValue != int16(150) {
+		t.Fatalf("WritePoint(Lit, 1.5): point %+v, error %v; want raw 150", p, err)
+	}
+	before := sh.writes.Load()
+	_, err = dev.WritePoint(testCtx(t), inst, "Odd", 1.5)
+	if !errors.Is(err, ErrPointNotWritable) || !strings.Contains(err.Error(), "Gone_SF, which the model as read does not hold") {
+		t.Fatalf("WritePoint(Odd, 1.5): error %v; want ErrPointNotWritable naming Gone_SF", err)
+	}
+	if n := sh.writes.Load() - before; n != 0 {
+		t.Fatalf("%d writes were sent for a value that was refused", n)
+	}
+	if got := servedPoint(t, srv, 0, "Odd"); got != int16(3) {
+		t.Fatalf("the device holds %v after a refused write, want 3", got)
 	}
 }

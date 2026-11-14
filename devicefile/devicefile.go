@@ -145,6 +145,7 @@ func New(unitID uint8, baseAddress uint16) *File {
 
 // MaxFileSize is the longest file Load reads, 16 MiB. A device file for the
 // whole 16-bit register space, every register given, is well under 1 MiB.
+// Parse takes up to about 30 times the size of a file in memory.
 const MaxFileSize = 16 << 20
 
 // Load reads and parses the device file at path, which may be a symbolic link

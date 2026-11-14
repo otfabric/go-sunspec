@@ -12,7 +12,8 @@ This repository follows **otfabric/engineering policy 1.6**, profile **protocol-
 
 | Question | Source |
 |---|---|
-| Model definitions | `models/` (copied from sunspec/models, see models/README.md) |
+| Model definitions | `models/` (copied from sunspec/models at the commit in models/README.md; checked against `models/SHA256SUMS`) |
+| Which SunSpec rule a behaviour follows | SPECIFICATIONS.md |
 | Public API contract | API.md |
 | Errors | ERRORS.md |
 | What is not done or not verified | LIMITATIONS.md |
@@ -35,7 +36,7 @@ This repository follows **otfabric/engineering policy 1.6**, profile **protocol-
 |---|---|
 | anything | `make check` |
 | a decoder, encoder or device-file parsing | `make fuzz` |
-| `models/` or `internal/gen` | `make generate generate-check` |
+| `models/` or `internal/gen` | `make models-verify generate generate-check` |
 | chaos or stress tests, or the read path | `make soak`, and `go test -race -count=20 -run 'Chaos|Stress' .` |
 | what upstream publishes | `make models-check` (read-only) |
 

@@ -621,6 +621,9 @@ func dial(t testing.TB, addr string, timeout time.Duration) *modbus.Client {
 }
 
 func TestServerServe(t *testing.T) {
+	// Nothing is left running: not by a Serve that ended, and not by one
+	// that could not start.
+	t.Cleanup(leakCheck(t))
 	srv := ctlServer(t, nil)
 	addr := listenAddr(t)
 	ctx, cancel := context.WithCancel(context.Background())

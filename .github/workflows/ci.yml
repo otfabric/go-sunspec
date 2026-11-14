@@ -26,7 +26,8 @@ jobs:
     secrets: inherit
 
   # registry/models_gen.go follows models/: a change of either without the
-  # other fails.
+  # other fails. models/ is what sync-models.sh retrieved: a file that differs
+  # from models/SHA256SUMS fails.
   generate:
     name: Generated code
     runs-on: ubuntu-latest
@@ -35,6 +36,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - run: make models-verify
       - run: make generate-check
 
   # The per-package coverage floor (TEST-012).
