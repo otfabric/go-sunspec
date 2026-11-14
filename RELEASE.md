@@ -23,7 +23,7 @@ No exported identifier is added, removed or changed. Four behaviours change; the
 - `.github/workflows/nightly.yml`: every night each fuzz target runs for 5 minutes (a failing input is uploaded), and the tests run as 386 binaries, where an `int` has 32 bits.
 - [SPECIFICATIONS.md](SPECIFICATIONS.md): which source each rule of the decoder, the encoder and `WritePoint` follows (the model definitions' schema, pysunspec2, the interop suite), and the test that pins it. It says where no source was identified: the edition and the clauses of the SunSpec specification are not recorded yet.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `models/LICENSE`: the SunSpec model definitions are under the Apache License 2.0, and the licence text is now next to them.
-- The release workflow builds and tests sunspecctl and sunspec-explorer against the release candidate before it tags (`consumers`).
+- The release workflow builds and tests sunspecctl against the release candidate before it tags (`consumers`). sunspec-explorer is not listed: its build needs the headers of a desktop toolkit, which that job does not have.
 
 ### Changed
 

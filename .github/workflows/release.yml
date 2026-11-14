@@ -26,8 +26,9 @@ jobs:
       release-name-prefix: go-sunspec
       update-major-tag: false
       # Direct dependants, built, vetted and tested against the candidate
-      # before the tag is created.
+      # before the tag is created. sunspec-explorer is not listed: it is a
+      # desktop application whose build needs GTK and WebKit headers, which
+      # this job does not install.
       consumers: |
         otfabric/sunspecctl
-        otfabric/sunspec-explorer
     secrets: inherit
