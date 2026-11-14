@@ -1,5 +1,18 @@
 # go-sunspec Releases
 
+## v0.10.5
+
+**Date:** 2026-11-14
+**Previous release:** v0.10.4
+
+No API change.
+
+### Changed
+
+- Built on go-modbus v1.15.3 (was v1.15.2): after a failed `Accept` the server waits before it tries again, a metrics hook that does not return normally is contained, an RTU request longer than a frame is refused before it is sent, and a request whose context ends while the deadline is set is not sent (go-modbus RELEASE.md, v1.15.3). The previous release named go-modbus v1.15.2 for these changes; v1.15.2 was tagged without them (it holds go-serial v0.4.0 only), so they arrive with this release.
+
+---
+
 ## v0.10.4
 
 **Date:** 2026-11-14
