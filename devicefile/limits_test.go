@@ -4,6 +4,7 @@ package devicefile
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
@@ -108,53 +109,128 @@ func allocated(fn func()) uint64 {
 	return after.TotalAlloc - before.TotalAlloc
 }
 
+// fill returns a file of at most size bytes: head, as many elements as fit
+// (elem(i) for the i-th), separated by commas, and tail.
+func fill(size int, head string, elem func(i int) string, tail string) []byte {
+	var b bytes.Buffer
+	b.Grow(size)
+	b.WriteString(head)
+	for i := 0; ; i++ {
+		e := elem(i)
+		if b.Len()+1+len(e)+len(tail) > size {
+			break
+		}
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(e)
+	}
+	b.WriteString(tail)
+	return b.Bytes()
+}
+
+// longList returns a point value of n copies of el: the longest list a
+// point value may be, for n = maxListLen.
+func longList(n int, el string) string {
+	return "[" + strings.TrimSuffix(strings.Repeat(el+",", n), ",") + "]"
+}
+
 // TestFileAllocationBudget: Parse and File.Server of a file at MaxFileSize
-// allocate a bounded multiple of the file's size (LIMITATIONS.md). The file
-// holds as many empty group instances as fit, which costs the most memory
-// per byte; the conversion stops after 65535 of them.
+// allocate a bounded multiple of the file's size (LIMITATIONS.md), for the
+// shapes that cost the most memory per byte: empty group instances (the
+// conversion stops after 65535 of them), group instances and models with an
+// empty "points" object, and point values that are lists as long as they
+// may be, of numbers, strings and objects.
 //
-// Under the race detector, parsing that file takes ten times as long, so the
-// file is an eighth of MaxFileSize there: the budget is per byte, and the
-// conversion stops at the same instance. The runs without it, CI's among
-// them, use the full size.
+// Under the race detector, parsing takes ten times as long, so the files are
+// an eighth of MaxFileSize there: the budget is per byte. The runs without
+// it, CI's among them, use the full size.
 func TestFileAllocationBudget(t *testing.T) {
 	size := MaxFileSize
 	if raceEnabled {
 		size /= 8
 	}
-	head, tail := `{"models": [{"id": 160, "groups": {"module": [`, `]}}]}`
-	var b bytes.Buffer
-	b.Grow(size)
-	b.WriteString(head)
-	for b.Len()+3+len(tail) <= size {
-		if b.Len() > len(head) {
-			b.WriteByte(',')
-		}
-		b.WriteString("{}")
+	numbers, strs, objects := longList(maxListLen, "0"), longList(maxListLen, `"a"`), longList(maxListLen, "{}")
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{
+		{"empty instances", fill(size, `{"models": [{"id": 160, "groups": {"module": [`, func(int) string { return "{}" }, `]}}]}`)},
+		{"instances with empty points", fill(size, `{"models": [{"id": 160, "groups": {"module": [`, func(int) string { return `{"points":{}}` }, `]}}]}`)},
+		{"models with empty points", fill(size, `{"models": [`, func(int) string { return `{"id":1,"points":{}}` }, `]}`)},
+		{"lists of numbers", fill(size, `{"models": [{"id": 1, "points": {`, func(i int) string { return fmt.Sprintf(`"p%d":%s`, i, numbers) }, `}}]}`)},
+		{"lists of strings", fill(size, `{"models": [{"id": 1, "points": {`, func(i int) string { return fmt.Sprintf(`"p%d":%s`, i, strs) }, `}}]}`)},
+		{"lists of objects", fill(size, `{"models": [{"id": 1, "points": {`, func(i int) string { return fmt.Sprintf(`"p%d":%s`, i, objects) }, `}}]}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var parseErr, serverErr error
+			parsed := allocated(func() {
+				var file *File
+				if file, parseErr = Parse(tc.data); parseErr == nil {
+					_, serverErr = file.Server(nil)
+				}
+			})
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+			// Every shape is refused when it is built: too many instances or
+			// models, points the model does not have.
+			if serverErr == nil {
+				t.Error("File.Server accepted the file")
+			}
+			// The costliest shape takes about 30 times the file's size.
+			const perByte = 40
+			if limit := uint64(perByte * len(tc.data)); parsed > limit {
+				t.Errorf("Parse and File.Server of %d bytes allocated %d bytes (%.1f per byte), budget %d per byte",
+					len(tc.data), parsed, float64(parsed)/float64(len(tc.data)), perByte)
+			}
+			t.Logf("%d bytes: %d allocated, %.1f per byte", len(tc.data), parsed, float64(parsed)/float64(len(tc.data)))
+		})
 	}
-	b.WriteString(tail)
-	data := b.Bytes()
+}
 
-	var parseErr, serverErr error
-	parsed := allocated(func() {
-		var file *File
-		if file, parseErr = Parse(data); parseErr == nil {
-			_, serverErr = file.Server(nil)
-		}
-	})
-	if parseErr != nil {
-		t.Fatal(parseErr)
+// TestPointValueListLimit: a list of more than 65535 values, which no point
+// holds, is refused by Parse, at any depth of the value, and by the
+// conversion of a group built in code; 65535 values are read.
+func TestPointValueListLimit(t *testing.T) {
+	file := func(value string) []byte {
+		return []byte(`{"models": [{"id": 1, "points": {"Mn": ` + value + `}}]}`)
 	}
-	// Parse alone takes about 29 times the file's size for this shape; the
-	// conversion adds next to nothing.
-	const perByte = 40
-	if limit := uint64(perByte * len(data)); parsed > limit {
-		t.Errorf("Parse and File.Server of %d bytes allocated %d bytes (%.1f per byte), budget %d per byte",
-			len(data), parsed, float64(parsed)/float64(len(data)), perByte)
+	for name, tc := range map[string]struct {
+		value string
+		ok    bool
+	}{
+		"longest list":           {longList(maxListLen, "1"), true},
+		"list too long":          {longList(maxListLen+1, "1"), false},
+		"nested list too long":   {"[" + longList(maxListLen+1, `"a"`) + "]", false},
+		"longest object":         {"{" + strings.TrimSuffix(strings.Repeat(`"k":1,`, maxListLen), ",") + "}", true},
+		"object too large":       {"{" + strings.TrimSuffix(strings.Repeat(`"k":1,`, maxListLen+1), ",") + "}", false},
+		"list in a large object": {`{"k": ` + longList(maxListLen+1, "1") + `}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, err := Parse(file(tc.value))
+			if tc.ok {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if f != nil || !errors.Is(err, ErrSyntax) || !strings.Contains(err.Error(), "point Mn: ") || !strings.Contains(err.Error(), "65535") {
+				t.Fatalf("Parse: %v, want a syntax error for point Mn", err)
+			}
+		})
 	}
-	var me *ModelError
-	if !errors.As(serverErr, &me) || !errors.Is(serverErr, ErrInvalid) {
-		t.Errorf("File.Server: %v, want the instance limit of ServerModels", serverErr)
+
+	long := make([]any, maxListLen+1)
+	for i := range long {
+		long[i] = json.Number("1")
 	}
-	t.Logf("%d bytes: %d allocated, %.1f per byte", len(data), parsed, float64(parsed)/float64(len(data)))
+	g := &Group{Points: Points{{Name: "Mn", Value: long}}}
+	if _, err := g.Values(); err == nil || !strings.Contains(err.Error(), "point Mn: a list of 65536 values") {
+		t.Errorf("Values of a list of %d values: %v", len(long), err)
+	}
+	v, err := (&Group{Points: Points{{Name: "Mn", Value: long[:maxListLen]}}}).Values()
+	if err != nil || len(v.Points["Mn"].([]uint16)) != maxListLen {
+		t.Errorf("Values of a list of %d values: %v", maxListLen, err)
+	}
 }

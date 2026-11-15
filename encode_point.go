@@ -248,7 +248,14 @@ func encodeValue(pm *registry.PointMeta, val any, sf *int16) ([]uint16, error) {
 		}
 		f := n.float()
 		if sf != nil {
-			f = unscale(f, *sf)
+			g := unscale(f, *sf)
+			if math.IsInf(g, 0) && !math.IsInf(f, 0) {
+				// An infinite value is taken as given, but a finite one
+				// the scale factor carries past the type's range is not
+				// the value asked for.
+				return nil, fmt.Errorf("%v scaled by 10^%d does not fit a %s point: %w", f, -int(*sf), pm.Type, ErrValueOutOfRange)
+			}
+			f = g
 		}
 		if math.IsNaN(f) {
 			return nil, fmt.Errorf("NaN is the type's not-implemented value, leave the point unset instead: %w", ErrValueOutOfRange)

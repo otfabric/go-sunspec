@@ -1,5 +1,54 @@
 # go-sunspec Releases
 
+## v0.12.0
+
+**Date:** 2026-11-15
+**Previous release:** v0.11.1
+
+Stricter device-file parsing, partial results from `ReadModels`, tighter checks in `WritePoint`, the encoder and the `Server`, and exact capture of models whose values do not read back the same.
+
+No exported identifier is added, removed or changed. Five behaviours change; they are listed under Breaking with what a caller does to keep the old one.
+
+### Breaking
+
+- **`devicefile.Parse` refuses a member given twice, a member name in another case and a nested group named twice.** `{"id": 1, "id": 2}`, `"ID"` for `"id"` and two `"module"` keys in one `"groups"` object were accepted before (encoding/json kept the last member and matched names regardless of case); they are now a `*SyntaxError` matching `ErrSyntax`, with line and column. Files written by this package are unaffected. A hand-written file must use the exact member names, each once, and list all instances of a nested group under one key.
+- **`Device.ReadModels` returns the registers already read for a long model the batch stopped in the middle of.** When a timeout, a transport error or the context ends the batch after some requests of an instance longer than one request, `ModelResult.Model` holds the registers read so far and `Err` wraps both `ErrPartialRead` and `batch.ErrNotAttempted`, as `ReadModel` returns them. Before, `Model` was nil. A caller that took a nil `Model` to mean "not attempted" checks `errors.Is(r.Err, batch.ErrNotAttempted)` instead; `errors.Is` with the cause still holds.
+- **`Device.WritePoint` refuses the count point of a group nested at any depth** with `ErrPointNotWritable`, as the encoder treats it. Before, only the count points of the top-level group's own groups were refused. A count point defines the model's layout; to change one anyway, write its register with the `*modbus.Client` directly.
+- **A finite float value that scaling would carry beyond the float range is refused** with an `*EncodeError` matching `ErrValueOutOfRange` (`EncodeModel`, `Server.SetPoint`, `WritePoint`, device files). Before, it was stored as ±Inf. To store an infinity, give `math.Inf` as the value: an infinite value is still taken as given.
+- **A point-value list or object of more than 65535 entries is refused** by `devicefile.Parse` (`ErrSyntax`) and by `Group.Values`. No point has more than 65535 registers, so such a list cannot describe a valid point. Before, it was decoded in full and left to the encoder. The JSON Schema has `maxItems: 65535` on the list forms of a point value.
+
+### Fixed
+
+- `EncodeModel` and `WritePoint` return a `*EncodeError` instead of panicking for a caller's schema whose count point, given as raw registers, has fewer registers than its type needs.
+- The `Server` refuses a client write that covers a register belonging to no point, also when a caller's schema has overlapping points. Before, the sizes of the points were summed, so overlapping points could make a write that reached a register of no point look complete.
+- `ReadModels` refuses a model whose header is the last two registers of the address space before any I/O, as `ReadModel` does.
+- `devicefile`: `Parse` decodes point values without a JSON decoder per `"points"` object and refuses lists of more than 65535 entries before decoding them, so the documented memory bound holds for list values and for empty `"points"` objects ([LIMITATIONS.md](LIMITATIONS.md#memory)).
+- `devicefile`: `Capture` and `FromDecoded` describe a model by its registers when a string point is not valid UTF-8, which JSON cannot hold, so the served file reads the same as the device. A model is described by its values only when every implemented point decodes back exactly.
+- `devicefile`: a model read without data registers is written as `"registers": []`, which `File.Server` refuses with `ErrModelLayout`, instead of being left out and served at its schema's length.
+
+### Changed
+
+- `WritePoint` writes an enum symbol name and a list of bitfield symbol names whatever value the point's scale factor reads: they are never scaled. Before v0.12.0 they were refused with `ErrPointNotWritable` while the scale factor was not usable.
+- The registry generator (`internal/gen`) rejects negative point sizes and sizes or group lengths above 65535 registers, and writes control and Unicode format characters in generated string literals as escapes. The generated registry is unchanged.
+
+### Docs
+
+- The `ErrPartialRead` descriptions match the behaviour: it is returned when any request of a read that needs several fails, the first included, and for a long model a `ReadModels` batch stopped in the middle of (API.md, ERRORS.md).
+- API.md, ERRORS.md, LIMITATIONS.md and TESTING.md describe the new `Parse` checks, the point-value list limit, the device-file memory figures per shape, and that a file captured without `raw` decodes the same as the device but is not identical register for register.
+
+### Tests
+
+- The decode allocation budget is also checked with register patterns chosen per point type (`TestDecodeModelAllocationBudgetByType`).
+- The device-file allocation budget covers group instances with and without an empty `"points"`, models with an empty `"points"`, and lists of 65535 numbers, strings and objects; `TestPointValueListLimit` checks the list limit at any depth.
+- `FuzzPointsUnmarshal` (package `devicefile`) checks `Points.UnmarshalJSON` against `encoding/json` with `UseNumber`.
+
+### CI
+
+- `check-models.sh` prints upstream model ids and labels as quoted JSON strings, and the models-check workflow fences the report and the diff with more backticks than any run in them.
+- `check-models.sh` resolves the upstream branch to one commit and fetches the file list and every model from that commit, as `sync-models.sh` does.
+
+---
+
 ## v0.11.1
 
 **Date:** 2026-11-15

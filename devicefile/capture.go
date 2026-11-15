@@ -3,11 +3,12 @@
 package devicefile
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 
 	"github.com/otfabric/go-modbus"
 	"github.com/otfabric/go-sunspec"
@@ -94,7 +95,9 @@ func groupFromValues(meta *registry.GroupMeta, v *sunspec.Values) Group {
 }
 
 // reproduces reports whether m, written to a file and loaded again, encodes
-// to a model that decodes to the same points as dm.
+// to a model that decodes to the same points as dm: the same implemented
+// points with the same raw values, byte for byte and bit for bit. A string
+// that is not valid UTF-8, which JSON cannot hold, does not.
 func reproduces(m *Model, dm *sunspec.DecodedModel) bool {
 	text, err := json.Marshal(m)
 	if err != nil {
@@ -112,12 +115,54 @@ func reproduces(m *Model, dm *sunspec.DecodedModel) bool {
 	if err != nil || len(regs) != len(dm.RawRegisters) {
 		return false
 	}
-	// The registers have the length of the device's, so they decode; the
-	// decoded groups always marshal.
+	// The registers have the length of the device's, so they decode.
 	again, _ := sunspec.DecodeModel(regs, dm.Schema, dm.InstanceAddress)
-	want, _ := json.Marshal(dm.Group)
-	got, _ := json.Marshal(again.Group)
-	return bytes.Equal(want, got)
+	return sameGroup(dm.Group, again.Group)
+}
+
+// sameGroup reports whether two decoded group instances hold the same
+// points and nested instances. Points that are not implemented compare by
+// that alone: the device's "not implemented" pattern is not a value.
+func sameGroup(a, b *sunspec.DecodedGroup) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Name != b.Name || a.Index != b.Index || len(a.Points) != len(b.Points) || len(a.Groups) != len(b.Groups) {
+		return false
+	}
+	for i := range a.Points {
+		p, q := &a.Points[i], &b.Points[i]
+		if p.Name != q.Name || p.Implemented != q.Implemented {
+			return false
+		}
+		if p.Implemented && !sameRaw(p.RawValue, q.RawValue) {
+			return false
+		}
+	}
+	for i := range a.Groups {
+		if !sameGroup(a.Groups[i], b.Groups[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameRaw compares two raw point values exactly: strings byte for byte,
+// floats by their bits, register lists element by element.
+func sameRaw(a, b any) bool {
+	switch x := a.(type) {
+	case float32:
+		y, ok := b.(float32)
+		return ok && math.Float32bits(x) == math.Float32bits(y)
+	case float64:
+		y, ok := b.(float64)
+		return ok && math.Float64bits(x) == math.Float64bits(y)
+	case []uint16:
+		y, ok := b.([]uint16)
+		return ok && slices.Equal(x, y)
+	}
+	// The other raw types (strings and integers) are comparable.
+	return a == b
 }
 
 // Template describes a model with every point present and not implemented

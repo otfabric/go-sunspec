@@ -5,6 +5,7 @@ package sunspec
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
@@ -273,6 +274,18 @@ func TestReadModelsFailuresLikeReadModel(t *testing.T) {
 		if results, err = dev.ReadModels(ctx, only); len(results) != 1 || !errors.Is(err, modbus.ErrUnexpectedParameters) {
 			t.Errorf("only an invalid instance: %v, %v", results, err)
 		}
+		// A model without data registers whose header is the last two
+		// registers of the address space: ReadModel refuses it, and so
+		// does ReadModels, without a request.
+		h.resetAddrs()
+		last := []ModelInstance{{Header: ModelHeader{ID: 7, Length: 0, StartAddress: 0xFFFE}}}
+		if results, err = dev.ReadModels(ctx, last); len(results) != 1 || !errors.Is(err, modbus.ErrUnexpectedParameters) {
+			t.Errorf("model at 0xFFFE: %v, %v", results, err)
+		}
+		if got := h.requestAddrs(); len(got) != 0 {
+			t.Errorf("requests at %v, want none", got)
+		}
+		checkLikeReadModel(t, dev, results)
 	})
 
 	t.Run("nil client", func(t *testing.T) {
@@ -301,4 +314,32 @@ func TestReadModelsInputRegisters(t *testing.T) {
 		models[i] = r.Model
 	}
 	d.checkAll(t, models)
+}
+
+// TestReadModelsStoppedInsideLongModel: a model of several requests that the
+// batch stopped after its first keeps the registers read, with
+// ErrPartialRead, as ReadModel does; one the batch stopped before is not
+// read at all.
+func TestReadModelsStoppedInsideLongModel(t *testing.T) {
+	inst := ModelInstance{Header: ModelHeader{ID: 64950, Length: 200, StartAddress: 40002}}
+	stop := fmt.Errorf("%w: %w", batch.ErrNotAttempted, context.Canceled)
+	read := append([]uint16{64950, 200}, seq(1, 123)...)
+
+	dm, err := itemModel(inst, batch.ItemResult{State: batch.NotAttempted, Registers: read,
+		Err: &batch.WindowError{Window: 1, Err: stop}})
+	if !errors.Is(err, ErrPartialRead) || !errors.Is(err, batch.ErrNotAttempted) || !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v, want ErrPartialRead and the reason the batch stopped", err)
+	}
+	if dm == nil || !reflect.DeepEqual(dm.RawRegisters, seq(1, 123)) {
+		t.Errorf("model %+v, want the 123 data registers read", dm)
+	}
+	want, _ := decodeRead(inst, read, fmt.Errorf("%w: read at %d+%d: %w", ErrPartialRead, 40002, len(read), stop))
+	if !reflect.DeepEqual(dm, want) {
+		t.Errorf("model %+v, want what ReadModel returns for a partial read %+v", dm, want)
+	}
+
+	dm, err = itemModel(inst, batch.ItemResult{State: batch.NotAttempted, Err: &batch.WindowError{Window: 0, Err: stop}})
+	if dm != nil || errors.Is(err, ErrPartialRead) || !errors.Is(err, batch.ErrNotAttempted) {
+		t.Errorf("not read at all: %+v, %v", dm, err)
+	}
 }

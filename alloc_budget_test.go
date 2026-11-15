@@ -5,6 +5,7 @@ package sunspec
 import (
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/otfabric/go-sunspec/registry"
@@ -94,6 +95,89 @@ func TestDecodeModelAllocationBudget(t *testing.T) {
 	}
 	t.Logf("at %d registers: DecodeModel at most %.0f bytes per register (model %d), Values %.0f (model %d)",
 		maxModelRegisters, worstDecode, worstDecodeID, worstValues, worstValuesID)
+}
+
+// countPointNames adds the names of the count points of g's nested groups,
+// at any depth, to out.
+func countPointNames(g *registry.GroupMeta, out map[string]bool) {
+	for _, c := range g.Groups {
+		if c.CountPoint != "" {
+			out[c.CountPoint] = true
+		}
+		countPointNames(c, out)
+	}
+}
+
+// fillByType returns regs, as decoded with meta, with every point other than
+// the header and the count points filled with a pattern the device chooses
+// for its type: sf in every scale factor, every bit of a bitfield set (but
+// the not-implemented value), strings without a NUL, the largest finite
+// floats. The count points keep their value, so the layout is the one regs
+// gives.
+func fillByType(t *testing.T, meta *registry.ModelMeta, regs []uint16, sf uint16) []uint16 {
+	t.Helper()
+	dm, err := DecodeModel(regs, meta, 0)
+	if err != nil {
+		t.Fatalf("model %d: %v", meta.ID, err)
+	}
+	counts := map[string]bool{}
+	countPointNames(meta.Group, counts)
+	out := slices.Clone(regs)
+	dm.Group.Walk(func(g *DecodedGroup) {
+		for _, p := range g.Points {
+			o, n := p.RegisterOffset, p.RegisterCount
+			if counts[p.Name] || o < 2 || n <= 0 || o+n > len(out) {
+				continue
+			}
+			fill := uint16(0x1234)
+			switch p.Type {
+			case "sunssf":
+				fill = sf
+			case "bitfield16", "bitfield32", "bitfield64":
+				fill = 0xFFFF
+			case "string":
+				fill = 0x4141
+			case "float32", "float64":
+				fill = 0x7F7F
+			}
+			for i := o; i < o+n; i++ {
+				out[i] = fill
+			}
+			if strings.HasPrefix(p.Type, "bitfield") {
+				out[o+n-1] = 0xFFFE
+			}
+		}
+	})
+	return out
+}
+
+// TestDecodeModelAllocationBudgetByType: the budget of
+// TestDecodeModelAllocationBudget holds for register patterns chosen per
+// point type, with scale factors that are usable, at the edge of the range
+// and not implemented, at budgetLength registers.
+func TestDecodeModelAllocationBudgetByType(t *testing.T) {
+	for _, meta := range registry.All() {
+		length := max(meta.FixedLength(), budgetLength)
+		base := make([]uint16, length)
+		for i := range base {
+			base[i] = 0x7FFF
+		}
+		base[0], base[1] = meta.ID, mustUint16(length-2)
+		for _, sf := range []uint16{0x0002, 0xFFF6, 0x8000} {
+			regs := fillByType(t, meta, base, sf)
+			var dm *DecodedModel
+			decode := allocated(func() { dm, _ = DecodeModel(regs, meta, 0) })
+			values := allocated(func() { _ = dm.Values() })
+			if limit := uint64(budgetFloor + decodeBudgetPerRegister*length); decode > limit {
+				t.Errorf("model %d, scale factors %#04x: DecodeModel of %d registers allocated %d bytes, budget %d",
+					meta.ID, sf, length, decode, limit)
+			}
+			if limit := uint64(budgetFloor + valuesBudgetPerRegister*length); values > limit {
+				t.Errorf("model %d, scale factors %#04x: Values of %d registers allocated %d bytes, budget %d",
+					meta.ID, sf, length, values, limit)
+			}
+		}
+	}
 }
 
 // TestDecodeCountAllocationBudget: a 32-bit count point that announces more

@@ -18,12 +18,16 @@ type ModelResult struct {
 	// Instance is the instance as given to ReadModels.
 	Instance ModelInstance
 	// Model is what ReadModel returns for the instance, partial registers
-	// included. It is nil when the instance was not read because the batch
-	// stopped before it.
+	// included. It is nil when no register of the instance was read because
+	// the batch stopped before it.
 	Model *DecodedModel
 	// Err is the instance's error as ReadModel returns it (ErrModelChanged,
 	// ErrPartialRead, a *DecodeError, a Modbus error), or one wrapping
-	// batch.ErrNotAttempted and the reason the batch stopped. Nil on success.
+	// batch.ErrNotAttempted and the reason the batch stopped. An instance
+	// longer than one request that the batch stopped in the middle of gets
+	// the registers read before it in Model and an error wrapping both
+	// ErrPartialRead and batch.ErrNotAttempted.
+	// Nil on success.
 	Err error
 }
 
@@ -48,7 +52,9 @@ type ModelResult struct {
 // instances, as from a device that refuses reads across model boundaries,
 // each of them is read again on its own, so every instance gets the result
 // ReadModel would give it. A timeout or transport error ends the batch: the
-// instances after it are not read. A cancelled or expired context ends it too.
+// instances after it are not read, and a longer instance it stops in the
+// middle of keeps the registers read before, with ErrPartialRead, as from
+// ReadModel. A cancelled or expired context ends it too.
 //
 // ReadModels uses the function codes of ReadFunctionCodes only.
 func (d *Device) ReadModels(ctx context.Context, insts []ModelInstance) ([]ModelResult, error) {
@@ -77,7 +83,7 @@ func (d *Device) ReadModels(ctx context.Context, insts []ModelInstance) ([]Model
 	itemOf := make([]int, len(insts))
 	for i, inst := range insts {
 		h := inst.Header
-		if int(h.StartAddress)+int(h.Length)+2 > 0xFFFF+1 || int(h.Length)+2 > 0xFFFF {
+		if int(h.StartAddress)+2 > 0xFFFF || int(h.StartAddress)+int(h.Length)+2 > 0xFFFF+1 || int(h.Length)+2 > 0xFFFF {
 			// ReadModel rejects it before any I/O.
 			itemOf[i] = -1
 			results[i].Model, results[i].Err = d.ReadModel(ctx, inst)
@@ -128,10 +134,13 @@ func (d *Device) ReadModels(ctx context.Context, insts []ModelInstance) ([]Model
 // itemModel turns the batch result of an instance's item into what ReadModel
 // returns for the same registers and error.
 func itemModel(inst ModelInstance, ir batch.ItemResult) (*DecodedModel, error) {
-	switch ir.State {
-	case batch.OK:
+	switch {
+	case ir.State == batch.OK:
 		return decodeRead(inst, slices.Clone(ir.Registers), nil)
-	case batch.NotAttempted:
+	case ir.State == batch.NotAttempted && len(ir.Registers) == 0:
+		// A long instance whose first requests were read before the batch
+		// stopped is handled below: what was read is kept, as ReadModel
+		// keeps it.
 		return nil, fmt.Errorf("sunspec: model %d at address %d: %w", inst.Header.ID, inst.Header.StartAddress, ir.Err)
 	default:
 		err := ir.Err

@@ -4,9 +4,11 @@ package devicefile
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/otfabric/go-sunspec"
@@ -65,6 +67,56 @@ func FuzzParse(f *testing.F) {
 		if _, err := file.Server(nil); err != nil &&
 			!errors.Is(err, ErrInvalid) && !errors.Is(err, sunspec.ErrEncode) && !errors.Is(err, sunspec.ErrModelLayout) {
 			t.Fatalf("Server: error of no documented kind: %v", err)
+		}
+	})
+}
+
+// FuzzPointsUnmarshal checks Points.UnmarshalJSON against encoding/json:
+// for any object it accepts, the values are those a json.Decoder with
+// UseNumber gives, in the order of the text.
+func FuzzPointsUnmarshal(f *testing.F) {
+	for _, seed := range []string{
+		`{}`, `null`, `{"a": 1}`, `{"b": [1, "x", null, true, false, -0.5e3], "a": {"k": [[]], "k": {}}}`,
+		`{"A\\": "😀", "x": " \t[ ] "}`, "{\"s\": \"\xff\"}", `[1]`, `{"a": }`,
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var got Points
+		err := got.UnmarshalJSON(data)
+		if !json.Valid(data) {
+			if err == nil {
+				t.Fatalf("invalid text accepted: %q", data)
+			}
+			return
+		}
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
+		var want any
+		if dec.Decode(&want) != nil {
+			t.Fatal("valid text does not decode")
+		}
+		obj, isObject := want.(map[string]any)
+		if !isObject {
+			if want == nil && (err != nil || got != nil) {
+				t.Fatalf("null: %v, %v", got, err)
+			}
+			if want != nil && err == nil {
+				t.Fatalf("%T accepted as points", want)
+			}
+			return
+		}
+		if err != nil {
+			// Refused: a name given twice, or a list or object too large.
+			return
+		}
+		if len(got) != len(obj) {
+			t.Fatalf("%d points, encoding/json has %d", len(got), len(obj))
+		}
+		for _, p := range got {
+			if v, ok := obj[p.Name]; !ok || !reflect.DeepEqual(v, p.Value) {
+				t.Fatalf("point %q = %#v, encoding/json has %#v", p.Name, p.Value, v)
+			}
 		}
 	})
 }

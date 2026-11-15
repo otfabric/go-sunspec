@@ -53,9 +53,10 @@ Also part of the callback contract ([API.md](API.md#the-onwrite-contract)): `Tes
 
 | What | Test |
 |---|---|
-| Memory `DecodeModel` and `Values` take per register, every registry model, the heaviest ones at the longest length a device can announce | `TestDecodeModelAllocationBudget` |
+| Memory `DecodeModel` and `Values` take per register, every registry model, the heaviest ones at the longest length a device can announce, also with register patterns chosen per point type | `TestDecodeModelAllocationBudget`, `TestDecodeModelAllocationBudgetByType` |
 | A count that announces more instances than any model holds costs what the registers hold | `TestDecodeCountAllocationBudget`, `TestDecodeCountBeyondAnInt32`, `TestCountValueBounds` |
-| Memory `devicefile.Parse` and `File.Server` take for a file of `MaxFileSize` | `TestFileAllocationBudget` (package `devicefile`). Under the race detector the file is an eighth of that size, since parsing it takes ten times as long there; the budget is per byte |
+| Memory `devicefile.Parse` and `File.Server` take for a file of `MaxFileSize` | `TestFileAllocationBudget` (package `devicefile`): empty group instances, group instances and models with an empty `"points"`, and point-value lists of 65535 numbers, strings and objects. Under the race detector the files are an eighth of that size, since parsing it takes ten times as long there; the budget is per byte |
+| Point-value lists and objects of a device file (65535 entries read, 65536 refused, at any depth) | `TestPointValueListLimit` (package `devicefile`) |
 | Group instances and nesting of a device file | `TestServerModelsInstanceLimit` (65534, 65535, 65536, 65537 instances), `TestServerModelsGroupsFollowTheSchema` |
 | Schema lengths, offsets and sizes up to `math.MaxInt` and across `math.MaxInt32` | `TestSchemaPointBounds`, `TestSchemaGroupLengthBounds` |
 | The scale factor a write needs: -11, -10, 10, 11, not implemented | `TestWritePointScaleFactor` |
@@ -77,7 +78,7 @@ Goroutine leaks are found by comparing the goroutines with those that existed be
 
 ## Fuzz regressions
 
-`make fuzz` discovers the targets: `FuzzDecodeModel`, `FuzzDiscover` (discovery and reads of arbitrary registers behind the marker, over loopback TCP), `FuzzServerRequest` (arbitrary holding register requests to a `Server`), `FuzzWritePoint` (`WritePoint` of arbitrary names and values over loopback TCP: documented errors only, a refused write changes nothing, an accepted one only the point's registers) and `FuzzParse` in package `devicefile`. A failing input is written to `testdata/fuzz/<target>/` of the package. Commit it with the fix: `go test` replays it from then on.
+`make fuzz` discovers the targets: `FuzzDecodeModel`, `FuzzDiscover` (discovery and reads of arbitrary registers behind the marker, over loopback TCP), `FuzzServerRequest` (arbitrary holding register requests to a `Server`), `FuzzWritePoint` (`WritePoint` of arbitrary names and values over loopback TCP: documented errors only, a refused write changes nothing, an accepted one only the point's registers) and `FuzzParse` and `FuzzPointsUnmarshal` (`Points.UnmarshalJSON` against `encoding/json` with `UseNumber`) in package `devicefile`. A failing input is written to `testdata/fuzz/<target>/` of the package. Commit it with the fix: `go test` replays it from then on.
 
 ## When CI runs
 

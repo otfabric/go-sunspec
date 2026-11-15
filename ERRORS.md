@@ -13,7 +13,7 @@ or re-exports the ones that matter at the SunSpec layer.
 | Model ID not in discovery result | `ErrUnknownModel` |
 | Named point missing after decode | `ErrPointNotFound` |
 | Register slice too short / decode failure | `*DecodeError` wrapping `ErrDecode` |
-| Multi-chunk register read failed mid-way | `ErrPartialRead` wrapping the Modbus cause |
+| A request of a read that needs several failed, the first included, or a `ReadModels` batch stopped inside a long model | `ErrPartialRead` wrapping the Modbus cause (and, for `ReadModels`, `batch.ErrNotAttempted`) |
 | Device no longer has the discovered model at that address | `ErrModelChanged` |
 | Chain longer than `MaxModels` | No error; warning in `Device.Discovery.Warnings` |
 | Model chain invalid / size limit | `ErrModelChainInvalid` / `ErrModelChainLimitExceeded` (from go-modbus) |
@@ -22,7 +22,7 @@ or re-exports the ones that matter at the SunSpec layer.
 | `DecodeModel` with a nil schema | `*DecodeError` wrapping `ErrDecode` |
 | Transport / timeout / Modbus exception | Underlying go-modbus error (often wrapped) |
 | Value cannot be encoded (unknown point, wrong Go type, bad symbol) | `*EncodeError` matching `ErrEncode` |
-| Value does not fit its point after scaling, or equals the "not implemented" value | `*EncodeError` matching `ErrEncode` and `ErrValueOutOfRange` |
+| Value does not fit its point after scaling (a finite float that scaling turns into ±Inf included), or equals the "not implemented" value | `*EncodeError` matching `ErrEncode` and `ErrValueOutOfRange` |
 | Point name not in the schema's group (`EncodeModel`, `Server.SetPoint`) | `*EncodeError` matching `ErrEncode` and `ErrPointNotFound` |
 | Models do not fit the address space; update would change a model's length | `ErrModelLayout` |
 | `Server` model index out of range; `ServerModel` without registers and without schema | `ErrUnknownModel` |
@@ -31,7 +31,7 @@ or re-exports the ones that matter at the SunSpec layer.
 | `WritePoint` of an engineering value while the device reports the point's scale factor as not implemented or outside -10..10 | `ErrPointNotWritable`, with the reason; nothing is sent (since v0.11.0). A `[]uint16` value is written as the point's registers, and a nil value as the not-implemented value |
 | `WritePoint` the device refuses | The Modbus exception (go-modbus error), wrapped |
 | Function code a read-only client does not allow | Error wrapping `modbus.ErrFunctionCodeNotAllowed` (go-modbus); nothing is sent. The reads of this package are never refused by `ReadFunctionCodes()` |
-| Device file is not valid JSON, has an unknown member, a wrong type, a point twice | `*devicefile.SyntaxError` matching `devicefile.ErrSyntax` |
+| Device file is not valid JSON, has an unknown member, a wrong type, a member, point or nested group twice, a member name in another case, a point-value list or object of more than 65535 entries | `*devicefile.SyntaxError` matching `devicefile.ErrSyntax` |
 | Device file model without ID, with registers and points, without schema; unsupported kind of value; unit ID 0 | `*devicefile.ModelError` (or a plain error for the unit ID) matching `devicefile.ErrInvalid` |
 | Device file model with a nested group its schema does not have, or with more than 65535 group instances | `*devicefile.ModelError` around a `*EncodeError`: matches `devicefile.ErrInvalid` and `ErrEncode` (since v0.11.0) |
 | Device file value that does not fit its point, or models that do not fit | `*EncodeError` / `ErrModelLayout`, as from `NewServer` |
@@ -62,10 +62,10 @@ if errors.As(err, &dec) {
 | `ErrNotSunSpec` | Detect/Discover found no SunSpec marker at probed bases |
 | `ErrUnknownModel` | `ReadModelByID`: ID absent from `Device.Discovery.Models` |
 | `ErrPointNotFound` | `ReadPoint`: name not present in the decoded model; `WritePoint`: name not a point of the top-level group |
-| `ErrPointNotWritable` | `WritePoint`: schema access not `RW`, a count point, a model without a schema or with more registers on the device than the schema describes, a `Device` on input registers, or (since v0.11.0) an engineering value for a point whose scale factor the device does not report as a usable value; nothing is sent |
+| `ErrPointNotWritable` | `WritePoint`: schema access not `RW`, a count point (of a group nested at any depth), a model without a schema or with more registers on the device than the schema describes, a `Device` on input registers, or (since v0.11.0) an engineering value for a point whose scale factor the device does not report as a usable value; nothing is sent |
 | `ErrDecode` | Decode failure (usually via `*DecodeError`) |
-| `ErrPartialRead` | Chunked read returned early; some registers may be present |
-| `batch.ErrNotAttempted` (go-modbus) | `ReadModels`: the instance was not read because an earlier request timed out, the connection failed or the context ended; the error also wraps that cause |
+| `ErrPartialRead` | A read that needs several requests failed on one of them, the first included; the registers read before it are returned (none when the first failed). `ReadModels`: also a long model the batch stopped in the middle of, together with `batch.ErrNotAttempted` (since v0.12.0) |
+| `batch.ErrNotAttempted` (go-modbus) | `ReadModels`: the instance was not read, or not read to the end, because an earlier request timed out, the connection failed or the context ended; the error also wraps that cause |
 | `ErrModelChanged` | `ReadModel`: the ID and length registers read with the model differ from the discovery result; discover again |
 | `ErrEncode` | Encode failure (via `*EncodeError`) |
 | `ErrValueOutOfRange` | A value does not fit its point: out of the type's range after scaling, equal to the type's "not implemented" value, a string longer than the point, more group instances than allowed, a `sunssf` value outside -10..10. Always together with `ErrEncode` |
@@ -132,7 +132,7 @@ A `Server` reports problems to Modbus clients as exceptions, not as Go errors:
 | Request | Exception |
 |---------|-----------|
 | Read or write touching an address outside the device map | 2, illegal data address |
-| Write to a read-only point, a header, the marker, a count point, part of a point, a raw model | 2, illegal data address |
+| Write to a read-only point, a header, the marker, a count point, part of a point, a register that belongs to no point, a raw model | 2, illegal data address |
 | Request for another unit ID | 0x0B, gateway target device failed to respond; no answer at all with `ServerOptions.SilentToOtherUnits` (since v0.5.1) |
 | Request for unit ID 0 (broadcast) | No answer; the request is not carried out (since v0.5.1) |
 | Coils, discrete inputs, FC 22, FC 23 | 1, illegal function |
@@ -168,8 +168,11 @@ type ModelError struct {
 
 `SyntaxError` formats as `line <l>, column <c>: <cause>` and has a position
 for malformed JSON and for a member of the wrong type (`errors.As` finds the
-`*json.SyntaxError` or `*json.UnmarshalTypeError`). An unknown member, a point
-given twice, a truncated document and data after the document have none.
+`*json.SyntaxError` or `*json.UnmarshalTypeError`), and for a member given
+twice, a member name that differs from the format's in case only and a nested
+group named twice in one `"groups"` object (since v0.12.0). An unknown member,
+a point given twice, a point-value list or object of more than 65535 entries
+(since v0.12.0), a truncated document and data after the document have none.
 `ModelError` formats as `models[<index>] (model <id>): <problem>`, for example
 `models[0] (model 160): group module[2]: point DCW: unsupported value true:
 use a number, a string, a list or null`.
@@ -215,6 +218,9 @@ if errors.As(err, &syn) && syn.Line > 0 {
   encountered. Inspect both the slice and the error.
 - `ReadModel` on a transport failure may return a partial `DecodedModel`
   (raw registers + warning) together with a non-nil error.
+- `ReadModels` keeps the registers already read of a long model the batch
+  stopped in the middle of, with an error wrapping `ErrPartialRead` and
+  `batch.ErrNotAttempted` (since v0.12.0; before, `Model` was nil).
 - `ErrPartialRead` wraps the underlying Modbus error with `%w`, so
   `errors.Is` against go-modbus sentinels still works.
 - A model that fails with `ErrModelChanged` is returned with the data

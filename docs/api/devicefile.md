@@ -156,7 +156,7 @@ New returns a device file for the given unit ID and base address, without models
 func Parse(data []byte) (*File, error)
 ```
 
-Parse parses a device file. Unknown members are errors: a misspelt "points" must not silently describe an empty model. So is a point given twice, and anything after the document.
+Parse parses a device file. Unknown members are errors: a misspelt "points" must not silently describe an empty model. So are a member given twice or written in another case ("ID" for "id"), a point or a nested group given twice in one object, a list of more than 65535 values in a point value (no point holds more registers), and anything after the document.
 
 Every error is a \*SyntaxError, with the line and column for malformed JSON and for a member of the wrong type. Parse checks the form of the file only: whether the models, points and values exist and fit is checked by ServerModels and Server.
 
@@ -248,8 +248,10 @@ type Model struct {
 	Group
 	// Registers holds the data registers that follow the model's ID and
 	// length registers. It replaces points and groups, and is the only way
-	// to describe a model without a schema.
-	Registers []uint16 `json:"registers,omitempty"`
+	// to describe a model without a schema. A non-nil empty list, a model
+	// without data registers, is written as "registers": [] (and refused by
+	// Server, as no device can serve it); a nil list is left out.
+	Registers []uint16 `json:"registers,omitzero"`
 }
 ```
 
@@ -352,7 +354,7 @@ MarshalJSON writes the points as one object, in order.
 func (l *Points) UnmarshalJSON(data []byte) error
 ```
 
-UnmarshalJSON reads an object of point values, keeping its order.
+UnmarshalJSON reads an object of point values, keeping its order. A list longer than 65535 values, which no point holds, is refused.
 
 ### type ServerOptions
 

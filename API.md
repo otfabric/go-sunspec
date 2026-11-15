@@ -151,8 +151,8 @@ model again.
 
 | Refused before anything is sent | Error |
 |---|---|
-| Schema access not `RW`, the count point of a group, a model without a schema or with more registers on the device than the schema describes, a `Device` on input registers | `ErrPointNotWritable` |
-| A value other than `[]uint16` or nil for a point whose scale factor point the device does not report as a usable value: not implemented, or outside -10..10 (since v0.11.0) | `ErrPointNotWritable`, with the reason |
+| Schema access not `RW`, the count point of a group (nested at any depth), a model without a schema or with more registers on the device than the schema describes, a `Device` on input registers | `ErrPointNotWritable` |
+| A value other than `[]uint16`, nil, an enum symbol name or a list of bitfield symbol names for a point whose scale factor point the device does not report as a usable value: not implemented, or outside -10..10 (since v0.11.0) | `ErrPointNotWritable`, with the reason |
 | A name that is not a point of the top-level group | `ErrPointNotFound` |
 | A value the encoder refuses | `*EncodeError` (`ErrEncode`, `ErrValueOutOfRange`) |
 | A client built with `AllowedFunctionCodes: ReadFunctionCodes()` | `modbus.ErrFunctionCodeNotAllowed` |
@@ -168,7 +168,9 @@ one, the value cannot be converted to the device's registers, and
 `WritePoint` refuses it before anything is sent. `Device.ReadModel` shows the
 same condition as a point without `ScaledValue`. A `[]uint16` value is the
 point's registers and is written as it is, whatever the scale factor reads,
-and so is a nil value, which sets the point to its not-implemented value:
+and so is a nil value, which sets the point to its not-implemented value. Enum
+symbol names and bitfield symbol lists are never scaled and are written
+whatever the scale factor reads (since v0.12.0):
 
 ```go
 _, err := dev.WritePoint(ctx, inst, "WMaxLimPct", 75.0)
@@ -187,7 +189,7 @@ returned nil. A literal scale factor of the schema is always usable. See
 ```go
 type ModelResult struct {
     Instance ModelInstance // as given
-    Model    *DecodedModel // as ReadModel returns it; nil when not attempted
+    Model    *DecodedModel // as ReadModel returns it; nil when nothing of it was read
     Err      error         // as ReadModel returns it, or wrapping batch.ErrNotAttempted
 }
 ```
@@ -211,8 +213,8 @@ result carries its own:
 |---|---|---|
 | A Modbus exception on a request serving several instances | those instances | each is read again on its own, so it gets the result `ReadModel` gives it |
 | A Modbus exception on a request of one instance | that instance | as `ReadModel`: the exception, or `ErrPartialRead` with the registers read for a long model |
-| A timeout or transport error | the instances of that request | that error; the instances after it are not read |
-| A cancelled or expired context | the instances not yet read | `Model` nil, `Err` wrapping `batch.ErrNotAttempted` and the context error |
+| A timeout or transport error | the instances of that request | that error; the instances after it are not read. A long instance the batch stops in the middle of keeps the registers already read in `Model`, and `Err` wraps `ErrPartialRead` and `batch.ErrNotAttempted` (since v0.12.0; before, `Model` was nil) |
+| A cancelled or expired context | the instances not yet read | `Err` wrapping `batch.ErrNotAttempted` and the context error; `Model` nil for an instance of which nothing was read, the registers already read with `ErrPartialRead` for a long one the batch stopped in the middle of |
 
 The requests are made one after another; they are not an atomic snapshot of
 the device. `ReadAll` is unchanged and reads one model per request; to read the
@@ -350,7 +352,9 @@ number outside -10..10 for a `sunssf` point fails with `ErrValueOutOfRange`
 converted exactly, including 64-bit ones beyond the precision of a `float64`.
 
 Nothing is wrapped or clamped: a value outside the range of the point's type
-after scaling fails with an error matching `ErrValueOutOfRange`.
+after scaling fails with an error matching `ErrValueOutOfRange`. So does a
+finite value of a float point that scaling would turn into ±Inf (since
+v0.12.0); an infinite value is taken as given.
 
 ### Groups and counts
 
@@ -442,8 +446,9 @@ A write (FC 6, FC 16) is accepted when it covers whole points and nothing else,
 all with schema access `RW`, in a model served from `Values`. Everything else is
 refused with exception 2 and changes nothing: read-only points, the marker, ID
 and length registers, the count point of a group (whatever its access: it
-defines the layout), part of a multi-register point, a model served from
-`Registers`, the end marker, unmapped addresses. With `RegType`
+defines the layout), part of a multi-register point, a write with any register
+that belongs to no point (also when a caller's schema has overlapping points),
+a model served from `Registers`, the end marker, unmapped addresses. With `RegType`
 `InputRegister` nothing is writable.
 
 The `Server` does not judge values: the registers of an accepted write are
@@ -585,8 +590,10 @@ and `sunspecctl template` write and the OT Fabric SunSpec Explorer exports
 A point value is what [`Values`](#values-by-point-type) takes, in JSON: a
 number (the engineering value for a point with a scale factor), a string (text,
 an enum symbol name, an address), a list of bitfield symbol names, a list of
-raw registers for any point, or `null` for "not implemented". Unknown members,
-a point given twice and point names the model does not have are errors.
+raw registers for any point, or `null` for "not implemented". A list holds at
+most 65535 values (`maxItems` in the schema), as no point has more registers.
+Unknown members, a member given twice or in another case, a point or nested
+group given twice, and point names the model does not have are errors.
 
 `devicefile.Schema()` returns a JSON Schema (draft 2020-12) of the format, the
 file [`devicefile/devicefile.schema.json`](devicefile/devicefile.schema.json),
@@ -656,9 +663,14 @@ func Schema() []byte
 ### Reading a file
 
 `Parse` checks the form of the file: JSON, the types of the members, no
-unknown members, no point given twice, nothing after the document. Its errors
-are `*SyntaxError`, with line and column for malformed JSON and for a member
-of the wrong type. `Load` refuses a path that is not a regular file
+unknown members, no member given twice, no member name in another case
+(`"ID"` for `"id"`), no point given twice, no nested group named twice in one
+`"groups"` object, no list or object of more than 65535 entries at any depth
+of a point value, nothing after the document (the member, case, group and
+length checks since v0.12.0). Its errors are `*SyntaxError` (matching
+`ErrSyntax`), with line and column for malformed JSON, for a member of the
+wrong type, and for a member given twice, a member name in another case and
+a nested group named twice. `Load` refuses a path that is not a regular file
 (`ErrNotRegular`: a directory, `/dev/zero`, a named pipe; a symbolic link to a
 regular file is followed) and a file longer than `MaxFileSize`, 16 MiB
 (`ErrTooLarge`), before parsing anything. `WriteFile` writes a temporary file
@@ -705,9 +717,17 @@ of the encoder): see [ERRORS.md](ERRORS.md#device-files).
 without warnings is described by its point values, in schema order, which a
 person can read and edit; a model without a schema, one that is shorter or
 longer than its schema, and one whose values would not read back the same, by
-its `registers`. With `raw`, every model is described by its registers.
-Either way, serving the file gives a device that reads the same as the
-original; with `raw` it is identical register for register. Enum and bitfield
+its `registers`. A model is described by its values only when every
+implemented point decodes back exactly from them, so a string point that is
+not valid UTF-8 (which JSON cannot hold) makes the model `registers` (since
+v0.12.0). With `raw`, every model is described by its registers. Without
+`raw`, serving the file gives a device that decodes the same as the original,
+not one identical register for register: the space padding of strings and
+the registers of points that are not implemented may differ. With `raw` it is
+identical register for register. A model read with no data registers is
+written as `"registers": []`, which `File.Server` refuses with
+`ErrModelLayout` (since v0.12.0; before, it was served at its schema's
+length). Enum and bitfield
 points are written as numbers, so that values the schema does not name
 survive.
 
