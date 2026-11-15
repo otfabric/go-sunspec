@@ -1,5 +1,18 @@
 # go-sunspec Releases
 
+## v0.11.1
+
+**Date:** 2026-11-15
+**Previous release:** v0.11.0
+
+No library code changes.
+
+### Changed
+
+- Built on go-modbus v1.16.1 (was v1.16.0), which moves to go-serial v0.4.1 for its serial transports (go-modbus RELEASE.md, v1.16.1; go-serial RELEASE.md, v0.4.1).
+
+---
+
 ## v0.11.0
 
 **Date:** 2026-11-14
