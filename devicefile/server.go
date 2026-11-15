@@ -174,27 +174,39 @@ func pointValue(value any) (any, error) {
 	case nil, string, json.Number:
 		return v, nil
 	case []any:
-		names := make([]string, 0, len(v))
-		regs := make([]uint16, 0, len(v))
+		if len(v) > maxListLen {
+			return nil, fmt.Errorf("a list of %d values: no point holds more than %d registers", len(v), maxListLen)
+		}
+		// Count first, so that only the slice the value needs is allocated.
+		var nNames, nRegs int
 		for _, el := range v {
-			switch e := el.(type) {
+			switch el.(type) {
 			case string:
-				names = append(names, e)
+				nNames++
 			case json.Number:
+				nRegs++
+			default:
+				return nil, errors.New("a list must hold bitfield symbol names or raw register values")
+			}
+		}
+		if nNames > 0 && nRegs > 0 {
+			return nil, errors.New("a list must hold either bitfield symbol names or raw register values, not both")
+		}
+		if nRegs > 0 {
+			regs := make([]uint16, 0, nRegs)
+			for _, el := range v {
+				e := el.(json.Number)
 				n, err := strconv.ParseUint(string(e), 10, 16)
 				if err != nil {
 					return nil, fmt.Errorf("register value %s is not a whole number from 0 to 65535", e)
 				}
 				regs = append(regs, uint16(n))
-			default:
-				return nil, errors.New("a list must hold bitfield symbol names or raw register values")
 			}
-		}
-		if len(names) > 0 && len(regs) > 0 {
-			return nil, errors.New("a list must hold either bitfield symbol names or raw register values, not both")
-		}
-		if len(regs) > 0 {
 			return regs, nil
+		}
+		names := make([]string, 0, nNames)
+		for _, el := range v {
+			names = append(names, el.(string))
 		}
 		return names, nil
 	case bool:

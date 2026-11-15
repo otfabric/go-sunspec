@@ -472,6 +472,13 @@ func countable(pointType string) bool {
 // decoder reads as not implemented, which counts no instances: the point's
 // raw not-implemented registers, or zero in an accumulator.
 func countFromValue(pm *registry.PointMeta, val any) (n int, implemented bool, err error) {
+	// encodeValue takes raw registers without checking the point's size, and
+	// the count is read from the registers its type needs: a schema that
+	// gives the point fewer is refused for any form of value, as for an
+	// integer.
+	if err := checkSize(pm); err != nil {
+		return 0, false, err
+	}
 	regs, err := encodeValue(pm, val, nil)
 	if err != nil {
 		return 0, false, err

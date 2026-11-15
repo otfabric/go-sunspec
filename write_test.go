@@ -347,3 +347,105 @@ func TestWritePointScaleFactorOfTheSchema(t *testing.T) {
 		t.Fatalf("the device holds %v after a refused write, want 3", got)
 	}
 }
+
+// shimTarget serves srv behind a shim that counts the write requests and
+// returns the device discovered at 40000 with schema attached to its first
+// model.
+func shimTarget(t *testing.T, srv *Server, schema *registry.ModelMeta) (*Device, ModelInstance, *shim) {
+	t.Helper()
+	sh := newShim(srv)
+	addr, _ := startModbus(t, sh)
+	dev, err := Discover(testCtx(t), dial(t, addr, 2*time.Second), at(40000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := dev.Discovery.Models[0]
+	inst.Schema, inst.SchemaKnown = schema, true
+	return dev, inst, sh
+}
+
+// TestWritePointUndersizedCountPoint: a schema whose count point has fewer
+// registers than its type needs is refused with a *EncodeError, before
+// anything is sent; the model as read gives that point as its registers.
+func TestWritePointUndersizedCountPoint(t *testing.T) {
+	srv, err := NewServer(&ServerOptions{BaseAddress: 40000}, ServerModel{ID: 64060, Registers: []uint16{5, 100}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, inst, sh := shimTarget(t, srv, undersizedCountSchema("uint32", 1))
+	_, err = dev.WritePoint(testCtx(t), inst, "W", 7)
+	if ee, ok := errors.AsType[*EncodeError](err); !ok || ee.PointName != "NPt" {
+		t.Fatalf("WritePoint(W, 7): error %v, want a *EncodeError for NPt", err)
+	}
+	if n := sh.writes.Load(); n != 0 {
+		t.Errorf("%d writes were sent", n)
+	}
+}
+
+// TestWritePointNestedCountPoint: a top-level point that counts a group
+// nested one level further in defines the layout as well and is refused.
+func TestWritePointNestedCountPoint(t *testing.T) {
+	inner := &registry.GroupMeta{Name: "Inner", CountPoint: "N", Length: 1,
+		Points: []registry.PointMeta{{Name: "V", Type: "uint16", Size: 1, Offset: 0, Access: "RW"}}}
+	outer := &registry.GroupMeta{Name: "Outer", Count: 1, Length: 1, Groups: []*registry.GroupMeta{inner},
+		Points: []registry.PointMeta{{Name: "O", Type: "uint16", Size: 1, Offset: 0, Access: "RW"}}}
+	schema := &registry.ModelMeta{ID: 64032, Name: "m", Group: &registry.GroupMeta{
+		Name: "m", Count: 1, Length: 4, Groups: []*registry.GroupMeta{outer},
+		Points: append(boundsHeader(),
+			registry.PointMeta{Name: "N", Type: "uint16", Size: 1, Offset: 2, Access: "RW"},
+			registry.PointMeta{Name: "W", Type: "uint16", Size: 1, Offset: 3, Access: "RW"},
+		),
+	}}
+	vals := (&Values{}).Set("W", 1)
+	vals.Add("Outer", (&Values{}).Set("O", 2)).Add("Inner", (&Values{}).Set("V", 3))
+	srv, err := NewServer(&ServerOptions{BaseAddress: 40000}, ServerModel{Schema: schema, Values: vals})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, inst, sh := shimTarget(t, srv, schema)
+	// The count it holds already: the layout would not change, and the
+	// point is refused all the same.
+	if _, err := dev.WritePoint(testCtx(t), inst, "N", 1); !errors.Is(err, ErrPointNotWritable) {
+		t.Fatalf("WritePoint(N, 1): error %v, want ErrPointNotWritable", err)
+	}
+	if n := sh.writes.Load(); n != 0 {
+		t.Errorf("%d writes were sent for the count point", n)
+	}
+	if p, err := dev.WritePoint(testCtx(t), inst, "W", 5); err != nil || p.RawValue != uint16(5) {
+		t.Errorf("WritePoint(W, 5): %+v, %v", p, err)
+	}
+}
+
+// TestWritePointSymbolsWithoutScaleFactor: enum and bitfield symbol names are
+// raw values, written whatever the point's scale factor reads; a number for
+// the same point is still refused.
+func TestWritePointSymbolsWithoutScaleFactor(t *testing.T) {
+	syms := []registry.SymbolMeta{{Name: "OFF", Value: 0}, {Name: "ON", Value: 1}, {Name: "B2", Value: 2}}
+	schema := pointSchema(64031,
+		registry.PointMeta{Name: "E", Type: "enum16", Size: 1, SF: "X_SF", Access: "RW", Symbols: syms},
+		registry.PointMeta{Name: "F", Type: "bitfield16", Size: 1, SF: "X_SF", Access: "RW", Symbols: syms},
+		registry.PointMeta{Name: "X_SF", Type: "sunssf", Size: 1, Access: "R"},
+	)
+	srv, err := NewServer(&ServerOptions{BaseAddress: 40000},
+		ServerModel{Schema: schema, Values: (&Values{}).Set("E", 0).Set("F", 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, inst, sh := shimTarget(t, srv, schema)
+	ctx := testCtx(t)
+	if p, err := dev.WritePoint(ctx, inst, "E", "ON"); err != nil || p.RawValue != uint16(1) {
+		t.Errorf("WritePoint(E, ON): %+v, %v", p, err)
+	}
+	if p, err := dev.WritePoint(ctx, inst, "F", []string{"B2", "ON"}); err != nil || p.RawValue != uint16(0b110) {
+		t.Errorf("WritePoint(F, [B2 ON]): %+v, %v", p, err)
+	}
+	if _, err := dev.WritePoint(ctx, inst, "E", 1); !errors.Is(err, ErrPointNotWritable) {
+		t.Errorf("WritePoint(E, 1): error %v, want ErrPointNotWritable", err)
+	}
+	if _, err := dev.WritePoint(ctx, inst, "F", "ON"); !errors.Is(err, ErrPointNotWritable) {
+		t.Errorf("WritePoint(F, ON): error %v, want ErrPointNotWritable", err)
+	}
+	if n := sh.writes.Load(); n != 2 {
+		t.Errorf("%d writes were sent, want 2", n)
+	}
+}

@@ -161,7 +161,7 @@ func TestSchemaRejectsInvalidFiles(t *testing.T) {
 		}
 		err := validate(t, []byte(tc.content))
 		switch {
-		case tc.name == "duplicate point":
+		case strings.HasPrefix(tc.name, "duplicate "):
 			// A JSON Schema validator sees an object, not its text.
 		case tc.name == "unknown model":
 			// Which models have a definition is not in the schema.

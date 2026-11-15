@@ -519,7 +519,7 @@ It reads the model's two header registers at inst.Header.StartAddress and the in
 
 The header registers are compared with inst.Header. A device that no longer reports that model ID and length at that address has changed its model chain since discovery (a firmware update, a reconfiguration, a different device behind the same address), and decoding its registers with the old layout would yield values that look valid and are not: ReadModel then returns an error matching ErrModelChanged. Discover again to continue.
 
-On failure ReadModel returns a non-nil DecodedModel next to the error: for a read error it holds the data registers read so far (ErrPartialRead when a later chunk of a long model failed, otherwise the Modbus error as is); for a changed model it holds the data registers that were read, undecoded; for a device that reports fewer registers than the schema's fixed block needs it holds the raw registers and the error is a \*DecodeError.
+On failure ReadModel returns a non-nil DecodedModel next to the error: for a read error it holds the data registers read so far (ErrPartialRead when the model needs several requests and one of them failed, the first included, otherwise the Modbus error as is); for a changed model it holds the data registers that were read, undecoded; for a device that reports fewer registers than the schema's fixed block needs it holds the raw registers and the error is a \*DecodeError.
 
 #### func (Device) ReadModelByID
 
@@ -539,7 +539,7 @@ ReadModels reads and decodes the given instances, in fewer requests than ReadMod
 
 Adjacent instances share a request up to the Modbus limit of 125 registers; no register outside the instances is read. Every request includes the header of each instance it serves, which is checked as ReadModel checks it. An instance whose header and data fit in one request (Length of 123 or less) is never split, so its values and scale factors come from one response. A longer instance gets requests of its own and fails with ErrPartialRead, keeping the registers read, when one of them fails. An instance given twice is read once and decoded for each. The requests are made one after another; they are not an atomic snapshot of the device.
 
-A Modbus exception fails only its request. When that request served several instances, as from a device that refuses reads across model boundaries, each of them is read again on its own, so every instance gets the result ReadModel would give it. A timeout or transport error ends the batch: the instances after it are not read. A cancelled or expired context ends it too.
+A Modbus exception fails only its request. When that request served several instances, as from a device that refuses reads across model boundaries, each of them is read again on its own, so every instance gets the result ReadModel would give it. A timeout or transport error ends the batch: the instances after it are not read, and a longer instance it stops in the middle of keeps the registers read before, with ErrPartialRead, as from ReadModel. A cancelled or expired context ends it too.
 
 ReadModels uses the function codes of ReadFunctionCodes only.
 
@@ -563,9 +563,9 @@ WritePoint writes one top-level point of a model instance and returns the point 
 
 It is the only method of this package that sends a write. It reads the model first, so that the header is checked (ErrModelChanged) and the point's scale factor is the device's current one, and encodes value as EncodeModel does: the engineering value for a scaled point, an enum symbol name, a list of bitfield symbol names, a string, or \[]uint16 with the point's exact registers. Then it writes the point's registers, and only those, with Write Multiple Registers (FC 16), and reads the model again.
 
-A point that is not "RW" in the schema, a count point, a model without a schema and a Device on input registers fail with ErrPointNotWritable, and a name that is not a point of the top-level group with ErrPointNotFound, before anything is sent. A value the encoder refuses fails with its \*EncodeError. A device that refuses the write returns its Modbus exception (modbus.ErrIllegalDataAddress, say).
+A point that is not "RW" in the schema, a count point (of a group at any depth of the model, as EncodeModel sees it), a model without a schema and a Device on input registers fail with ErrPointNotWritable, and a name that is not a point of the top-level group with ErrPointNotFound, before anything is sent. A value the encoder refuses fails with its \*EncodeError. A device that refuses the write returns its Modbus exception (modbus.ErrIllegalDataAddress, say).
 
-A point whose schema names a scale factor point is written only when the device reports that scale factor, in the read before the write, as a usable value: implemented and within -10..10. Otherwise the engineering value cannot be converted to the device's registers, and WritePoint fails with ErrPointNotWritable, saying why, before anything is sent. A \[]uint16 value is not scaled and is written as the point's registers whatever the scale factor, and so is a nil value, which sets the point to its not-implemented value; before v0.11.0 every value was then written unscaled.
+A point whose schema names a scale factor point is written only when the device reports that scale factor, in the read before the write, as a usable value: implemented and within -10..10. Otherwise the engineering value cannot be converted to the device's registers, and WritePoint fails with ErrPointNotWritable, saying why, before anything is sent. A \[]uint16 value is not scaled and is written as the point's registers whatever the scale factor, and so is a nil value, which sets the point to its not-implemented value; before v0.11.0 every value was then written unscaled. An enum symbol name and a list of bitfield symbol names are raw values, never scaled, and are written whatever the scale factor as well.
 
 A client built with AllowedFunctionCodes: ReadFunctionCodes() cannot write: WritePoint then fails with modbus.ErrFunctionCodeNotAllowed.
 
@@ -725,12 +725,16 @@ type ModelResult struct {
 	// Instance is the instance as given to ReadModels.
 	Instance ModelInstance
 	// Model is what ReadModel returns for the instance, partial registers
-	// included. It is nil when the instance was not read because the batch
-	// stopped before it.
+	// included. It is nil when no register of the instance was read because
+	// the batch stopped before it.
 	Model *DecodedModel
 	// Err is the instance's error as ReadModel returns it (ErrModelChanged,
 	// ErrPartialRead, a *DecodeError, a Modbus error), or one wrapping
-	// batch.ErrNotAttempted and the reason the batch stopped. Nil on success.
+	// batch.ErrNotAttempted and the reason the batch stopped. An instance
+	// longer than one request that the batch stopped in the middle of gets
+	// the registers read before it in Model and an error wrapping both
+	// ErrPartialRead and batch.ErrNotAttempted.
+	// Nil on success.
 	Err error
 }
 ```

@@ -3,15 +3,18 @@
 # check-models.sh
 #
 # Compares the SunSpec JSON model definitions in models/ with the official
-# sunspec/models GitHub repository (master branch) and reports models that
-# are new, changed or removed upstream. Nothing in models/ is modified:
+# sunspec/models GitHub repository (the head of the master branch, resolved
+# once to a commit) and reports models that are new, changed or removed
+# upstream. Nothing in models/ is modified:
 # files are compared by their git blob hash, which the GitHub API lists for
 # every upstream file. Run ./sync-models.sh and `make generate` to update.
 #
 # With --diff, the new and changed models are fetched (to a temporary
 # directory) and compared with the local copies: for every changed model the
 # script prints the points that differ, followed by a unified diff of the JSON,
-# and for every new model a short description.
+# and for every new model a short description. Upstream ids and labels in the
+# descriptions are printed as JSON strings, one line each. All files come from
+# the same commit as the file list.
 #
 # https://github.com/sunspec/models/tree/master/json
 #
@@ -51,8 +54,7 @@ done
 
 REPO="sunspec/models"
 BRANCH="master"
-API_URL="https://api.github.com/repos/${REPO}/git/trees/${BRANCH}?recursive=1"
-RAW_BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}/json"
+API_URL="https://api.github.com/repos/${REPO}"
 DEST_DIR="$(cd "$(dirname "$0")" && pwd)/models"
 
 for tool in curl jq git diff; do
@@ -65,8 +67,25 @@ if [ -n "${GITHUB_TOKEN:-}" ]; then
 fi
 
 # ${auth[@]+...}: an empty array is "unbound" under `set -u` in bash 3.2 (macOS).
-tree="$(curl -sf ${auth[@]+"${auth[@]}"} -H "Accept: application/vnd.github+json" "$API_URL")" || {
-  echo "check-models: could not fetch the file list from ${REPO}@${BRANCH}" >&2
+api() {
+  curl -sf ${auth[@]+"${auth[@]}"} -H "Accept: application/vnd.github+json" "$1"
+}
+
+# Resolve the branch once, as sync-models.sh does: the file list and every
+# downloaded file then come from the same commit, even if upstream moves on.
+head="$(api "${API_URL}/commits/${BRANCH}")" || {
+  echo "check-models: could not resolve ${REPO}@${BRANCH}" >&2
+  exit 2
+}
+commit="$(jq -r '.sha' <<<"$head" 2>/dev/null)" || commit=""
+if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "check-models: unexpected answer for ${REPO}@${BRANCH}" >&2
+  exit 2
+fi
+RAW_BASE="https://raw.githubusercontent.com/${REPO}/${commit}/json"
+
+tree="$(api "${API_URL}/git/trees/${commit}?recursive=1")" || {
+  echo "check-models: could not fetch the file list of ${REPO}@${commit}" >&2
   exit 2
 }
 if [ "$(jq -r '.truncated' <<<"$tree")" != "false" ]; then
@@ -99,7 +118,7 @@ for local_file in "$DEST_DIR"/*.json; do
   fi
 done
 
-echo "Compared models/ with ${REPO}@${BRANCH} ($(wc -l <<<"$upstream" | tr -d ' ') upstream files)."
+echo "Compared models/ with ${REPO}@${BRANCH} (commit ${commit}, $(wc -l <<<"$upstream" | tr -d ' ') upstream files)."
 
 if [ "${#new[@]}" -eq 0 ] && [ "${#changed[@]}" -eq 0 ] && [ "${#removed[@]}" -eq 0 ]; then
   echo "In sync: no new, changed or removed models."
@@ -127,7 +146,7 @@ if [ "$show_diff" = true ]; then
 
   fetch() {
     curl -sf "$RAW_BASE/$1" -o "$tmp/$1" || {
-      echo "check-models: could not download $1 from ${REPO}@${BRANCH}" >&2
+      echo "check-models: could not download $1 from ${REPO}@${commit}" >&2
       exit 2
     }
   }
@@ -143,8 +162,10 @@ if [ "$show_diff" = true ]; then
       if (.group | type) == "object" then .group | walk("") else empty end' "$1" 2>/dev/null || true
   }
 
+  # Upstream strings are printed with tojson: quoted, on one line, with
+  # newlines and other control characters escaped.
   describe() {
-    jq -r '"id \(.id // "?"), \(.group.label // .group.name // "no label"), " +
+    jq -r '"id \(.id // "?" | tojson), \(.group.label // .group.name // "no label" | tojson), " +
       "\([.group | .. | objects | select(has("points")) | .points[]] | length) points"' "$1" 2>/dev/null ||
       echo "not a model definition"
   }

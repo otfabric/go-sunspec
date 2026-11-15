@@ -55,7 +55,8 @@ func (d *Device) ReadAll(ctx context.Context) ([]*DecodedModel, error) {
 //
 // On failure ReadModel returns a non-nil DecodedModel next to the error: for
 // a read error it holds the data registers read so far (ErrPartialRead when
-// a later chunk of a long model failed, otherwise the Modbus error as is);
+// the model needs several requests and one of them failed, the first
+// included, otherwise the Modbus error as is);
 // for a changed model it holds the data registers that were read, undecoded;
 // for a device that reports fewer registers than the schema's fixed block
 // needs it holds the raw registers and the error is a *DecodeError.

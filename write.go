@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/otfabric/go-modbus"
+	"github.com/otfabric/go-sunspec/registry"
 )
 
 // ErrPointNotWritable indicates a write the client refuses before sending
@@ -30,7 +31,8 @@ var ErrPointNotWritable = errors.New("sunspec: point not writable")
 // point's exact registers. Then it writes the point's registers, and only
 // those, with Write Multiple Registers (FC 16), and reads the model again.
 //
-// A point that is not "RW" in the schema, a count point, a model without a
+// A point that is not "RW" in the schema, a count point (of a group at any
+// depth of the model, as EncodeModel sees it), a model without a
 // schema and a Device on input registers fail with ErrPointNotWritable, and
 // a name that is not a point of the top-level group with ErrPointNotFound,
 // before anything is sent. A value the encoder refuses fails with its
@@ -44,7 +46,9 @@ var ErrPointNotWritable = errors.New("sunspec: point not writable")
 // ErrPointNotWritable, saying why, before anything is sent. A []uint16 value
 // is not scaled and is written as the point's registers whatever the scale
 // factor, and so is a nil value, which sets the point to its not-implemented
-// value; before v0.11.0 every value was then written unscaled.
+// value; before v0.11.0 every value was then written unscaled. An enum
+// symbol name and a list of bitfield symbol names are raw values, never
+// scaled, and are written whatever the scale factor as well.
 //
 // A client built with AllowedFunctionCodes: ReadFunctionCodes() cannot
 // write: WritePoint then fails with modbus.ErrFunctionCodeNotAllowed.
@@ -61,7 +65,7 @@ func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string
 	top := inst.Schema.Group
 	var size, offset int
 	var sf string
-	found := false
+	found, symbol := false, false
 	for i := range top.Points {
 		pm := &top.Points[i]
 		if pm.Name != name {
@@ -70,12 +74,13 @@ func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string
 		if pm.Access != "RW" {
 			return nil, fmt.Errorf("%w: %s of model %d has access %q", ErrPointNotWritable, name, inst.Header.ID, pm.Access)
 		}
-		for _, g := range top.Groups {
-			if g.CountPoint == name {
-				return nil, fmt.Errorf("%w: %s of model %d counts the instances of %s", ErrPointNotWritable, name, inst.Header.ID, g.Name)
-			}
+		if countsGroups(top, name) {
+			// Also the count of a group nested further in, as the encoder
+			// sees it.
+			return nil, fmt.Errorf("%w: %s of model %d counts the instances of a group", ErrPointNotWritable, name, inst.Header.ID)
 		}
 		size, offset, sf, found = pm.Size, pm.Offset, pm.SF, true
+		symbol = isSymbol(pm, value)
 		break
 	}
 	if !found {
@@ -86,7 +91,7 @@ func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string
 	if err != nil {
 		return nil, err
 	}
-	if _, raw := value.([]uint16); !raw && value != nil && sf != "" {
+	if _, raw := value.([]uint16); !raw && !symbol && value != nil && sf != "" {
 		if reason := unusableSF(dm, sf); reason != "" {
 			return nil, fmt.Errorf("%w: %s of model %d is scaled by %s, %s; give its registers as []uint16 to write them unscaled",
 				ErrPointNotWritable, name, inst.Header.ID, sf, reason)
@@ -109,6 +114,21 @@ func (d *Device) WritePoint(ctx context.Context, inst ModelInstance, name string
 		return nil, fmt.Errorf("sunspec: write %s of model %d: %w", name, inst.Header.ID, err)
 	}
 	return d.ReadPoint(ctx, inst, name)
+}
+
+// isSymbol reports whether value is a symbol name of an enum point or a list
+// of symbol names of a bitfield point: a raw value, which is never scaled.
+func isSymbol(pm *registry.PointMeta, value any) bool {
+	switch pm.Type {
+	case "enum16", "enum32":
+		_, ok := value.(string)
+		return ok
+	case "bitfield16", "bitfield32", "bitfield64":
+		_, ok := value.([]string)
+		return ok
+	default:
+		return false
+	}
 }
 
 // unusableSF says why the scale factor sf of a top-level point of dm cannot

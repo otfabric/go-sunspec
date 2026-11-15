@@ -417,6 +417,36 @@ func TestServerWriteToRegisterWithoutPoint(t *testing.T) {
 	}
 }
 
+// TestServerWriteOverlappingPoints: a caller's schema whose points overlap
+// leaves a register to no point all the same; a write covering it is refused
+// although the sizes of the points it covers add up to its length.
+func TestServerWriteOverlappingPoints(t *testing.T) {
+	meta := &registry.ModelMeta{ID: 64014, Name: "m", Group: &registry.GroupMeta{
+		Name: "m", Count: 1, Length: 5,
+		Points: append(boundsHeader(),
+			registry.PointMeta{Name: "Wide", Type: "uint32", Size: 2, Offset: 2, Access: "RW"},
+			registry.PointMeta{Name: "Hi", Type: "uint16", Size: 1, Offset: 2, Access: "RW"},
+		),
+	}}
+	srv, err := NewServer(nil, ServerModel{Schema: meta, Values: (&Values{}).Set("Wide", 70000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Data registers at 4..6; 6 belongs to no point.
+	if err := holdingWrite(srv, 4, 3, 4, 5); !errors.Is(err, modbus.ErrIllegalDataAddress) {
+		t.Errorf("write over the register without a point: %v", err)
+	}
+	if got, _ := holdingRead(srv, 6, 1); got[0] != 0 {
+		t.Errorf("the register without a point holds %d after a refused write", got[0])
+	}
+	if err := holdingWrite(srv, 4, 0, 9); err != nil {
+		t.Errorf("write of the overlapping points: %v", err)
+	}
+	if got, _ := holdingRead(srv, 4, 2); got[0] != 0 || got[1] != 9 {
+		t.Errorf("after the write the points hold %v", got)
+	}
+}
+
 func TestServerUpdateErrorsChangeNothing(t *testing.T) {
 	srv := ctlServer(t, nil)
 	before, _ := holdingRead(srv, 40000, 30)

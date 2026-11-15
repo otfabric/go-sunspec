@@ -690,7 +690,10 @@ func (s *Server) write(ctx context.Context, req *modbus.HoldingRegistersRequest)
 // registers, header included, with the write applied. The caller holds the
 // lock, for reading at least.
 func (s *Server) candidate(m *servedModel, lo, hi int, args []uint16) ([]uint16, error) {
-	covered := 0
+	// Every register of the write must belong to a point. A caller's schema
+	// may have overlapping points, so the registers are marked rather than
+	// the point sizes summed.
+	covered := make([]bool, hi-lo)
 	for i := range m.slots {
 		sl := &m.slots[i]
 		from, to := m.start+sl.offset, m.start+sl.offset+sl.meta.Size
@@ -700,9 +703,11 @@ func (s *Server) candidate(m *servedModel, lo, hi int, args []uint16) ([]uint16,
 		if !sl.writable || from < lo || to > hi {
 			return nil, modbus.ErrIllegalDataAddress
 		}
-		covered += sl.meta.Size
+		for r := from; r < to; r++ {
+			covered[r-lo] = true
+		}
 	}
-	if covered != hi-lo {
+	if slices.Contains(covered, false) {
 		return nil, modbus.ErrIllegalDataAddress
 	}
 	regs := append([]uint16(nil), s.registers(m)...)

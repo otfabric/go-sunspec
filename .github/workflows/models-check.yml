@@ -48,21 +48,26 @@ jobs:
           status=0
           ./check-models.sh --diff-file models.diff | tee report.txt || status=$?
           echo "status=${status}" >> "$GITHUB_OUTPUT"
+          # The report and the diff hold upstream text. Each code block is fenced with
+          # more backticks than the longest backtick run in that text, so nothing in it
+          # can close the block early.
+          fence='```'
+          while grep -qF -- "${fence}" report.txt models.diff; do fence="${fence}\`"; done
           {
             echo "## SunSpec models check"
             echo
-            echo '```text'
+            echo "${fence}text"
             cat report.txt
-            echo '```'
+            echo "${fence}"
             if [ -s models.diff ]; then
               echo
               echo "### Differences (models/ → upstream)"
               echo
-              echo '```diff'
+              echo "${fence}diff"
               # The job summary is limited to 1 MiB; the artifact has the full diff.
               head -c 500000 models.diff
               echo
-              echo '```'
+              echo "${fence}"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           # 0 = in sync, 1 = upstream differs; anything else means the check itself failed.
@@ -101,13 +106,16 @@ jobs:
           MAX_DIFF_BYTES: "55000"
         run: |
           set -euo pipefail
+          # As in the summary: a fence longer than any backtick run in the upstream text.
+          fence='```'
+          while grep -qF -- "${fence}" report.txt models.diff; do fence="${fence}\`"; done
           {
             echo "The weekly check found differences between \`models/\` and the official"
             echo "[sunspec/models](https://github.com/sunspec/models/tree/master/json) repository."
             echo
-            echo '```text'
+            echo "${fence}text"
             cat report.txt
-            echo '```'
+            echo "${fence}"
             echo
             echo "## What changed"
             echo
@@ -115,10 +123,10 @@ jobs:
             echo "name, type, size, scale factor, units, mandatory flag, access or symbol count differ,"
             echo "then the unified diff of the JSON."
             echo
-            echo '```diff'
+            echo "${fence}diff"
             head -c "${MAX_DIFF_BYTES}" models.diff
             echo
-            echo '```'
+            echo "${fence}"
             if [ "$(wc -c < models.diff)" -gt "${MAX_DIFF_BYTES}" ]; then
               echo
               echo "**The diff is truncated here.** The complete diff is in the"

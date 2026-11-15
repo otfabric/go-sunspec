@@ -241,15 +241,60 @@ func TestGenerateNoModels(t *testing.T) {
 	}
 }
 
-func TestGenerateRejectsUnformattableSource(t *testing.T) {
-	// goStr does not escape control characters, so a NUL in a name ends up
-	// raw in the source, which gofmt refuses.
-	src, err := generate([]schema.ModelDef{{ID: 1, Group: schema.GroupDef{Name: "a\x00b"}}})
-	if err == nil {
-		t.Fatalf("no error; generated %q", src)
+func TestGenerateEscapesControlCharacters(t *testing.T) {
+	// A NUL, a carriage return and a bidirectional control in a name are
+	// written as escapes, so the source stays valid and shows them.
+	src, err := generate([]schema.ModelDef{{ID: 1, Group: schema.GroupDef{Name: "a\x00b\rc\u202ed"}}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if src != nil {
-		t.Errorf("source = %q, want nil alongside an error", src)
+	if want := `Name:  "a\x00b\rc\u202ed",`; !strings.Contains(string(src), want) {
+		t.Errorf("generated source lacks %s:\n%s", want, src)
+	}
+}
+
+func TestGenerateRejectsPointSizes(t *testing.T) {
+	pts := func(sizes ...int) []schema.PointDef {
+		var p []schema.PointDef
+		for i, sz := range sizes {
+			p = append(p, schema.PointDef{Name: fmt.Sprintf("P%d", i), Type: "string", Size: sz})
+		}
+		return p
+	}
+	tests := []struct {
+		name  string
+		group schema.GroupDef
+		want  string // "" = accepted
+	}{
+		{"largest size", schema.GroupDef{Name: "g", Points: pts(maxRegisters)}, ""},
+		{"zero size counts as one register", schema.GroupDef{Name: "g", Points: pts(maxRegisters-1, 0)}, ""},
+		{"negative size", schema.GroupDef{Name: "g", Points: pts(1, -1)}, `model 7: group "g": point "P1": size -1 is outside 0..65535`},
+		{"oversized", schema.GroupDef{Name: "g", Points: pts(maxRegisters + 1)}, `model 7: group "g": point "P0": size 65536 is outside 0..65535`},
+		{"group too long", schema.GroupDef{Name: "g", Points: pts(maxRegisters, 0)}, `model 7: group "g": points are longer than 65535 registers`},
+		{"nested group", schema.GroupDef{Name: "g", Points: pts(1), Groups: []schema.GroupDef{
+			{Name: "ok", Points: pts(2)}, {Name: "rep", Points: pts(-4)},
+		}}, `model 7: group "rep": point "P0": size -4 is outside 0..65535`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src, err := generate([]schema.ModelDef{{ID: 7, Group: tc.group}})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("err = %v, want none", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.want {
+				t.Errorf("err = %v, want %s", err, tc.want)
+			}
+			if src != nil {
+				t.Errorf("source = %q, want nil alongside an error", src)
+			}
+		})
+	}
+	// Models without an ID are skipped before they are checked.
+	if _, err := generate([]schema.ModelDef{{Group: schema.GroupDef{Name: "g", Points: pts(-1)}}}); err != nil {
+		t.Errorf("model without ID: err = %v, want none", err)
 	}
 }
 
@@ -420,17 +465,22 @@ func TestWritePoint(t *testing.T) {
 
 func TestGoStr(t *testing.T) {
 	tests := map[string]string{
-		"":                   `""`,
-		"plain":              `"plain"`,
-		`say "hi"`:           `"say \"hi\""`,
-		`back\slash`:         `"back\\slash"`,
-		"line1\nline2":       `"line1\nline2"`,
-		"col1\tcol2":         `"col1\tcol2"`,
-		`\"`:                 `"\\\""`,
-		`already \n here`:    `"already \\n here"`,
-		"unicode °C é":       `"unicode °C é"`,
-		"\\\n\t\"":           `"\\\n\t\""`,
-		"percent %d %s 100%": `"percent %d %s 100%"`,
+		"":                               `""`,
+		"plain":                          `"plain"`,
+		`say "hi"`:                       `"say \"hi\""`,
+		`back\slash`:                     `"back\\slash"`,
+		"line1\nline2":                   `"line1\nline2"`,
+		"col1\tcol2":                     `"col1\tcol2"`,
+		`\"`:                             `"\\\""`,
+		`already \n here`:                `"already \\n here"`,
+		"unicode °C é":                   `"unicode °C é"`,
+		"\\\n\t\"":                       `"\\\n\t\""`,
+		"percent %d %s 100%":             `"percent %d %s 100%"`,
+		"cr\r\nlf":                       `"cr\r\nlf"`,
+		"nul\x00 bell\a":                 `"nul\x00 bell\a"`,
+		"bidi \u202e\u2066x\u2069\u200f": `"bidi \u202e\u2066x\u2069\u200f"`,
+		"zero\u200bwidth \ufeff":         `"zero\u200bwidth \ufeff"`,
+		"bad \xff utf8":                  `"bad \xff utf8"`,
 	}
 	for in, want := range tests {
 		got := goStr(in)
@@ -576,14 +626,14 @@ func TestRunErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("source cannot be formatted", func(t *testing.T) {
+	t.Run("point size out of range", func(t *testing.T) {
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "model_1.json"), []byte(`{"group": {"name": "nul\u0000name"}}`), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "model_1.json"), []byte(`{"id": 1, "group": {"name": "g", "points": [{"name": "P", "type": "string", "size": -2}]}}`), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		outFile := filepath.Join(t.TempDir(), "out.go")
 		if err := run(dir, outFile, &bytes.Buffer{}); err == nil {
-			t.Error("no error for a model that generates invalid Go source")
+			t.Error("no error for a model with a negative point size")
 		}
 		if _, statErr := os.Stat(outFile); !errors.Is(statErr, fs.ErrNotExist) {
 			t.Errorf("output file was created despite the error (stat: %v)", statErr)

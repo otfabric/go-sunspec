@@ -199,3 +199,45 @@ func TestDecodeCountBeyondAnInt32(t *testing.T) {
 		}
 	}
 }
+
+// undersizedCountSchema is a caller's schema whose count point NPt has fewer
+// registers than its type needs, followed by a writable point W.
+func undersizedCountSchema(countType string, countSize int) *registry.ModelMeta {
+	return &registry.ModelMeta{ID: 64060, Name: "m", Group: &registry.GroupMeta{
+		Name: "m", Count: 1, Length: 3 + countSize,
+		Points: append(boundsHeader(),
+			registry.PointMeta{Name: "NPt", Type: countType, Size: countSize, Offset: 2, Access: "R"},
+			registry.PointMeta{Name: "W", Type: "uint16", Size: 1, Offset: 2 + countSize, Access: "RW"},
+		),
+		Groups: []*registry.GroupMeta{{Name: "Pt", CountPoint: "NPt", Length: 1,
+			Points: []registry.PointMeta{{Name: "V", Type: "uint16", Size: 1, Offset: 0}}}},
+	}}
+}
+
+// TestEncodeUndersizedCountPoint: a count point with fewer registers than its
+// type needs is refused with a *EncodeError naming it, whether its value is
+// given as a number, as its registers or not at all.
+func TestEncodeUndersizedCountPoint(t *testing.T) {
+	for _, tc := range []struct {
+		typ  string
+		size int
+		raw  []uint16
+	}{
+		{"uint32", 1, []uint16{5}},
+		{"acc32", 1, []uint16{0}},
+		{"uint16", 0, []uint16{}},
+	} {
+		meta := undersizedCountSchema(tc.typ, tc.size)
+		for _, vals := range []*Values{
+			(&Values{}).Set("NPt", 1),
+			(&Values{}).Set("NPt", tc.raw),
+			{},
+		} {
+			_, err := EncodeModel(meta, vals)
+			ee, ok := errors.AsType[*EncodeError](err)
+			if !ok || ee.PointName != "NPt" || !strings.Contains(err.Error(), "needs") {
+				t.Errorf("%s of %d registers, NPt %v: error %v, want a *EncodeError for NPt", tc.typ, tc.size, vals.Points, err)
+			}
+		}
+	}
+}

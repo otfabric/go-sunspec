@@ -16,9 +16,10 @@ const maxRegistersPerRead = 125
 // chunks as required by the Modbus protocol.
 //
 // A range that does not fit in the 16-bit register address space is rejected
-// before any I/O. When a chunk after the first fails, the registers read so
-// far are returned together with an error wrapping ErrPartialRead and the
-// Modbus error.
+// before any I/O. A range of one request returns the Modbus error as is. When
+// a request of a range needing several fails, the first included, the
+// registers read before it (none for the first) are returned together with
+// an error wrapping ErrPartialRead and the Modbus error.
 func readRegisters(ctx context.Context, client *modbus.Client, unitID uint8, addr uint16, quantity uint16, regType modbus.RegType) ([]uint16, error) {
 	return readRange(ctx, client, unitID, addr, int(quantity), regType)
 }

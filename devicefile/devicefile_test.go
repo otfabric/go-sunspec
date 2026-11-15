@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -262,6 +263,13 @@ var fileErrors = []struct {
 	{"raw register fraction", `{"models": [{"id": 103, "points": {"W": [1.5]}}]}`, ErrInvalid, []string{"point W", "register value 1.5"}},
 	{"too many raw registers", `{"models": [{"id": 103, "points": {"W": [1, 2]}}]}`, sunspec.ErrEncode, []string{"point W", "2 raw registers"}},
 	{"duplicate point", `{"models": [{"id": 103, "points": {"W": 1, "W": 2}}]}`, ErrSyntax, []string{"point W is given twice"}},
+	{"duplicate member", `{"models": [{"id": 1, "id": 2}]}`, ErrSyntax, []string{"line 1, column 23", "member \"id\" is given twice"}},
+	{"duplicate top-level member", `{"models": [], "models": [{"id": 1}]}`, ErrSyntax, []string{"line 1, column 16", "member \"models\" is given twice"}},
+	{"duplicate member of a group", `{"models": [{"id": 160, "groups": {"module": [{"points": {}, "points": {}}]}}]}`, ErrSyntax, []string{"line 1, column 62", "member \"points\" is given twice"}},
+	{"duplicate group", `{"models": [{"id": 160, "groups": {"module": [{}], "module": [{}]}}]}`, ErrSyntax, []string{"line 1, column 52", "group module is given twice"}},
+	{"duplicate nested group", `{"models": [{"id": 705, "groups": {"Crv": [{"groups": {"Pt": [], "Pt": []}}]}}]}`, ErrSyntax, []string{"line 1, column 66", "group Pt is given twice"}},
+	{"member in another case", `{"models": [{"ID": 1}]}`, ErrSyntax, []string{"line 1, column 14", "member \"ID\": member names are case-sensitive"}},
+	{"top-level member in another case", `{"Models": []}`, ErrSyntax, []string{"line 1, column 2", "member \"Models\": member names are case-sensitive"}},
 	{"points not an object", `{"models": [{"id": 103, "points": [1]}]}`, ErrSyntax, []string{`"points" must be an object`}},
 	{"too many instances", `{"models": [{"id": 705, "points": {"NCrv": 1}, "groups": {"Crv": [{}, {}]}}]}`, sunspec.ErrEncode,
 		[]string{"model 705", "point NCrv", "count is 1 but 2 instances are given"}},
@@ -562,6 +570,139 @@ func TestFromDecodedFallsBackToRegisters(t *testing.T) {
 	}
 	if m := FromDecoded(nil, false); m.ID != nil || m.Registers != nil {
 		t.Errorf("nil model captured as %+v", m)
+	}
+}
+
+// TestFromDecodedStringNotUTF8: a string point whose bytes are not valid
+// UTF-8 cannot be written as a JSON string unchanged, so the model is
+// captured as registers and the served file gives the device's bytes back.
+// A string padded with spaces, which reads the same from the file, stays a
+// value.
+func TestFromDecodedStringNotUTF8(t *testing.T) {
+	meta := registry.ByID(1)
+	v := &sunspec.Values{}
+	v.Set("Mn", "Acme").Set("Md", "X").Set("SN", "1")
+	regs, err := sunspec.EncodeModel(meta, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		mn  []uint16
+		raw bool
+	}{
+		"not UTF-8":         {[]uint16{0xFF41, 0}, true},
+		"padded with space": {[]uint16{0x4120, 0x2020}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			device := slices.Clone(regs)
+			copy(device[2:], tc.mn)
+			dm, err := sunspec.DecodeModel(device, meta, 40002)
+			if err != nil || len(dm.Warnings) != 0 {
+				t.Fatalf("decode: %v, %v", err, dm.Warnings)
+			}
+			m := FromDecoded(dm, false)
+			if (m.Registers != nil) != tc.raw {
+				t.Fatalf("captured as registers: %v, want %v", m.Registers != nil, tc.raw)
+			}
+			file := New(1, 40000)
+			file.Models = append(file.Models, m)
+			text, err := file.Marshal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			served := readAll(t, discover(t, mustServer(t, string(text), nil), 1))
+			if got, want := served[0].Group.Point("Mn").RawValue, dm.Group.Point("Mn").RawValue; got != want {
+				t.Errorf("served Mn = %q, the device's %q", got, want)
+			}
+			if tc.raw && !slices.Equal(served[0].RawRegisters, device) {
+				t.Errorf("served registers %04x, the device's %04x", served[0].RawRegisters, device)
+			}
+		})
+	}
+}
+
+// TestSameRaw: raw values compare exactly, by type and bits.
+func TestSameRaw(t *testing.T) {
+	negZero32, negZero64 := float32(math.Copysign(0, -1)), math.Copysign(0, -1)
+	for _, tc := range []struct {
+		a, b any
+		same bool
+	}{
+		{float32(1.5), float32(1.5), true},
+		{float32(0), negZero32, false},
+		{float32(1), float64(1), false},
+		{1.5, 1.5, true},
+		{0.0, negZero64, false},
+		{0.0, float32(0), false},
+		{[]uint16{1, 2}, []uint16{1, 2}, true},
+		{[]uint16{1, 2}, []uint16{1, 3}, false},
+		{[]uint16{1}, "x", false},
+		{"A\xff", "A\ufffd", false},
+		{"A", "A", true},
+		{int16(1), int16(1), true},
+		{int16(1), uint16(1), false},
+	} {
+		if got := sameRaw(tc.a, tc.b); got != tc.same {
+			t.Errorf("sameRaw(%#v, %#v) = %v", tc.a, tc.b, got)
+		}
+	}
+	g := &sunspec.DecodedGroup{Name: "g", Points: []sunspec.DecodedPoint{{Name: "A", RawValue: uint16(0xFFFF)}}}
+	for name, other := range map[string]*sunspec.DecodedGroup{
+		"nil":             nil,
+		"another index":   {Name: "g", Index: 1, Points: g.Points},
+		"more groups":     {Name: "g", Points: g.Points, Groups: []*sunspec.DecodedGroup{{}}},
+		"another point":   {Name: "g", Points: []sunspec.DecodedPoint{{Name: "B", RawValue: uint16(0xFFFF)}}},
+		"now implemented": {Name: "g", Points: []sunspec.DecodedPoint{{Name: "A", RawValue: uint16(0xFFFF), Implemented: true}}},
+	} {
+		if sameGroup(g, other) {
+			t.Errorf("%s: same group", name)
+		}
+	}
+	// The pattern of a point that is not implemented is not a value.
+	if !sameGroup(g, &sunspec.DecodedGroup{Name: "g", Points: []sunspec.DecodedPoint{{Name: "A", RawValue: uint16(0x8000)}}}) {
+		t.Error("points not implemented with other patterns differ")
+	}
+	if !sameGroup(nil, nil) {
+		t.Error("nil groups differ")
+	}
+	nested := &sunspec.DecodedGroup{Groups: []*sunspec.DecodedGroup{{Points: []sunspec.DecodedPoint{{Name: "A", RawValue: "x", Implemented: true}}}}}
+	changed := &sunspec.DecodedGroup{Groups: []*sunspec.DecodedGroup{{Points: []sunspec.DecodedPoint{{Name: "A", RawValue: "y", Implemented: true}}}}}
+	if sameGroup(nested, changed) || !sameGroup(nested, nested) {
+		t.Error("nested instances are not compared")
+	}
+}
+
+// TestFromDecodedNoDataRegisters: a model read without data registers is
+// written with an empty "registers" list, which the server refuses, rather
+// than without one, which would serve the model at its schema's length.
+func TestFromDecodedNoDataRegisters(t *testing.T) {
+	for name, dm := range map[string]*sunspec.DecodedModel{
+		"with schema":    {ModelID: 1, Schema: registry.ByID(1), RawRegisters: []uint16{1, 0}},
+		"without schema": {ModelID: 64900, RawRegisters: []uint16{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := FromDecoded(dm, false)
+			if m.Registers == nil || len(m.Registers) != 0 {
+				t.Fatalf("captured as %+v", m)
+			}
+			file := New(1, 40000)
+			file.Models = append(file.Models, m)
+			text, err := file.Marshal()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(text), `"registers": []`) {
+				t.Fatalf("written as\n%s", text)
+			}
+			if err := build(string(text)); !errors.Is(err, sunspec.ErrModelLayout) {
+				t.Errorf("served: %v, want sunspec.ErrModelLayout", err)
+			}
+		})
+	}
+	// A model given by values still has no "registers" member.
+	text, err := json.Marshal(Model{ID: new(uint16)})
+	if err != nil || strings.Contains(string(text), "registers") {
+		t.Errorf("model without registers written as %s, %v", text, err)
 	}
 }
 

@@ -47,8 +47,10 @@ type Model struct {
 	Group
 	// Registers holds the data registers that follow the model's ID and
 	// length registers. It replaces points and groups, and is the only way
-	// to describe a model without a schema.
-	Registers []uint16 `json:"registers,omitempty"`
+	// to describe a model without a schema. A non-nil empty list, a model
+	// without data registers, is written as "registers": [] (and refused by
+	// Server, as no device can serve it); a nil list is left out.
+	Registers []uint16 `json:"registers,omitzero"`
 }
 
 // Group holds the values of one group instance.
@@ -99,44 +101,6 @@ func (l Points) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// UnmarshalJSON reads an object of point values, keeping its order.
-func (l *Points) UnmarshalJSON(data []byte) error {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	tok, err := dec.Token()
-	if err != nil {
-		return err
-	}
-	if tok == nil {
-		*l = nil
-		return nil
-	}
-	if d, ok := tok.(json.Delim); !ok || d != '{' {
-		return errors.New(`"points" must be an object of point names and values`)
-	}
-	var out Points
-	seen := make(map[string]bool)
-	for dec.More() {
-		// An object's keys are strings: the decoder guarantees it.
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		name := tok.(string)
-		if seen[name] {
-			return fmt.Errorf("point %s is given twice", name)
-		}
-		seen[name] = true
-		var value any
-		if err := dec.Decode(&value); err != nil {
-			return err
-		}
-		out = append(out, Point{Name: name, Value: value})
-	}
-	*l = out
-	return nil
-}
-
 // New returns a device file for the given unit ID and base address, without
 // models. Written as it is, it has an empty "models" list.
 func New(unitID uint8, baseAddress uint16) *File {
@@ -170,8 +134,11 @@ func Load(path string) (*File, error) {
 }
 
 // Parse parses a device file. Unknown members are errors: a misspelt
-// "points" must not silently describe an empty model. So is a point given
-// twice, and anything after the document.
+// "points" must not silently describe an empty model. So are a member given
+// twice or written in another case ("ID" for "id"), a point or a nested
+// group given twice in one object, a list of more than 65535 values in a
+// point value (no point holds more registers), and anything after the
+// document.
 //
 // Every error is a *SyntaxError, with the line and column for malformed JSON
 // and for a member of the wrong type. Parse checks the form of the file
@@ -199,6 +166,9 @@ func Parse(data []byte) (*File, error) {
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return nil, &SyntaxError{Err: errors.New("data after the end of the JSON document")}
+	}
+	if err := checkMembers(data); err != nil {
+		return nil, err
 	}
 	return &file, nil
 }
