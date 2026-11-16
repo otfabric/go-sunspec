@@ -138,7 +138,7 @@ A `Server` reports problems to Modbus clients as exceptions, not as Go errors:
 | Coils, discrete inputs, FC 22, FC 23 | 1, illegal function |
 | Write refused by `ServerOptions.OnWrite` | The error it returned; server device failure (4) when that is not a Modbus exception |
 | Write whose model changed while `ServerOptions.OnWrite` ran (another client write, an update) | 4, server device failure; nothing changes (since v0.11.0). The client may send the write again |
-| `ServerOptions.OnWrite` does not return normally, behind a go-modbus server | 4, server device failure (go-modbus v1.16.1 recovers it and logs it); nothing changes |
+| `ServerOptions.OnWrite` does not return normally, behind a go-modbus server | 4, server device failure (go-modbus v1.16.2 recovers it and logs it); nothing changes |
 
 ## Device files
 
