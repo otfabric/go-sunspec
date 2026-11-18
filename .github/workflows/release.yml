@@ -25,10 +25,8 @@ jobs:
       bump: ${{ inputs.bump }}
       release-name-prefix: go-sunspec
       update-major-tag: false
-      # Direct dependants, built, vetted and tested against the candidate
-      # before the tag is created. sunspec-explorer is not listed: it is a
-      # desktop application whose build needs GTK and WebKit headers, which
-      # this job does not install.
-      consumers: |
-        otfabric/sunspecctl
+      # No consumers input: a downstream module does not block a release.
+      # Its dependants (audit/dependency-graph.md in otfabric/engineering)
+      # are bumped to the new version after it is cut, each in its own
+      # pull request (standards/release.md).
     secrets: inherit
