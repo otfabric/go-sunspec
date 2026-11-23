@@ -484,7 +484,7 @@ with the `Server` locked and must not call its methods.
 | Which `Server` methods may it call | All of them. `UnitID`, `BaseAddress`, `RegType` and `Models` never wait; `Model` returns the model as it is before the write. An update of the model being written (`SetPoint`, `SetValues`, `Update`, `SetRegisters`) makes the write fail, see the next row |
 | When does the write take effect | When `OnWrite` returns nil and the model has not changed since the write was checked. When another client write or an update changed that model in between, the write is refused with `modbus.ErrServerDeviceFailure` (exception 4) and nothing changes: `OnWrite` may then have seen a write that did not take effect. Changes of other models do not matter |
 | May it change the `ServerWrite` | Yes, to no effect: `Registers`, `Points` and `Model` (its `RawRegisters` included) are copies that belong to `OnWrite`. What is stored is what the client wrote |
-| What a panic does | Behind a go-modbus server (`Serve`, `modbus.NewServer`), go-modbus v1.17.0 recovers it, logs it with its stack at error level and answers exception 4; the write does not take effect and the `Server` keeps serving. A direct caller of `HandleHoldingRegisters` gets the panic |
+| What a panic does | Behind a go-modbus server (`Serve`, `modbus.NewServer`), go-modbus v1.22.0 recovers it, logs it with its stack at error level and answers exception 4; the write does not take effect and the `Server` keeps serving. A direct caller of `HandleHoldingRegisters` gets the panic |
 
 A `Server` without `OnWrite` applies a write in one step, as before.
 
