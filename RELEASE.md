@@ -1,5 +1,18 @@
 # go-sunspec Releases
 
+## v0.12.3
+
+**Date:** 2026-11-23
+**Previous release:** v0.12.2
+
+No library code changes.
+
+### Changed
+
+- Built on go-modbus v1.22.0 (was v1.17.0) (go-modbus RELEASE.md, v1.18.0..v1.22.0). A `Device` reads with FC 03 and 04 and writes with FC 16 only, so none of the client changes of go-modbus v1.20.0 (FC 08, 12, 20, 43, `ProbeFunction`) applies to it. A `Server` behind a go-modbus server (`Serve`, `modbus.NewServer`) gets the server changes of go-modbus v1.20.0 and v1.21.0: a request PDU whose length disagrees with its function code is answered with exception 3 and the connection then closed (it was closed without an answer); a request whose function code has the exception bit set (`0x80`..`0xFF`) is not answered and the connection is kept (it was answered with exception 1); on `tcp+tls`, a Modbus Role extension with bytes after its UTF8String is invalid and the client is served with no role. The new go-modbus server settings (`AllowClient`, `MaxClientsPerHost`, `FirstRequestTimeout`, `FrameTimeout`, `Authorizer`) and metrics interfaces are opt-in and reach `Serve` through its `modbus.ServerConfig`; without them nothing else changes.
+
+---
+
 ## v0.12.2
 
 **Date:** 2026-11-16
